@@ -23,6 +23,8 @@ class ParserTests(unittest.TestCase):
         self.assertIn("计算机科学与技术学院", doc.college)
         self.assertIn("副教授", doc.title)
         self.assertIn("跨模态", doc.research)
+        self.assertIn("个人资料", doc.extra["sections"])
+        self.assertIn("研究领域", doc.extra["sections"])
         self.assertNotIn("mcao@suda.edu.cn", doc.content)
 
     def test_parse_free_form_teacher_page(self) -> None:
@@ -47,7 +49,33 @@ class ParserTests(unittest.TestCase):
 
     def test_teacher_page_filter(self) -> None:
         self.assertTrue(is_probable_teacher_page("教师个人主页\n个人资料\n个人简介\n研究领域\n很多正文"))
+        self.assertTrue(
+            is_probable_teacher_page(
+                "Ning Chen's homepage\nBiography\nResearch Interest\nPublications\nSchool of Computer Science"
+            )
+        )
+        self.assertTrue(
+            is_probable_teacher_page(
+                "HomePage of LI Junhui\n李军辉\n教授\n苏州大学/计算机科学与技术学院/自然语言处理实验室\n研究兴趣\n机器翻译\n论文发表"
+            )
+        )
+        self.assertTrue(
+            is_probable_teacher_page(
+                "Huanfei Ma's Homepage\n马欢飞\n数学科学学院\n江苏省应用数学（苏州大学）中心\n履历\n教学\n研究兴趣\n论文与著作"
+            )
+        )
+        self.assertTrue(
+            is_probable_teacher_page(
+                "Research Homepage\n张三\n物理科学与技术学院\nSoochow University\n研究兴趣\n论文与著作"
+            )
+        )
+        self.assertTrue(
+            is_probable_teacher_page(
+                "Research Homepage\n李四\n未来科学与工程学院\nSoochow University\n研究兴趣\n论文与著作"
+            )
+        )
         self.assertFalse(is_probable_teacher_page("学院列表\n学院 部门\n访问数据：1000"))
+        self.assertFalse(is_probable_teacher_page("error\n正在同步中，请稍后再试……"))
 
 
 if __name__ == "__main__":

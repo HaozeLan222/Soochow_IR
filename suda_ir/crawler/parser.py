@@ -10,9 +10,28 @@ from suda_ir.models import TeacherDoc
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?86[-\s]?)?(?:0\d{2,3}[-\s]?)?\d{7,8}(?!\d)")
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 WHITESPACE_RE = re.compile(r"\s+")
-SECTION_RE = re.compile(
-    r"^(#{1,6}\s*)?(个人资料|个人概况|个人简介|个人简历|研究领域|研究方向|科研方向|论文|学术论文|发表论文|科研项目|科技成果|招生信息|教育经历|工作经历|学术活动)\s*[:：]?$"
-)
+SECTION_HEADINGS = [
+    "个人资料",
+    "个人概况",
+    "个人简介",
+    "个人简历",
+    "教育经历",
+    "工作经历",
+    "研究领域",
+    "研究方向",
+    "科研方向",
+    "开授课程",
+    "科研项目",
+    "论文",
+    "学术论文",
+    "发表论文",
+    "科研成果",
+    "科技成果",
+    "荣誉及奖励",
+    "招生信息",
+    "学术活动",
+]
+SECTION_RE = re.compile(rf"^(#{{1,6}}\s*)?({'|'.join(map(re.escape, SECTION_HEADINGS))})\s*[:：]?$")
 
 FIELD_ALIASES = {
     "research": ["研究方向", "研究领域", "科研方向", "主要研究方向", "研究兴趣", "目前主要研究方向"],
@@ -21,6 +40,7 @@ FIELD_ALIASES = {
     "title": ["职称", "专业技术职务", "职务", "岗位"],
     "college": ["直属机构", "院部/部门", "学院", "所在学院"],
 }
+TITLE_WORDS = ["高级实验师", "特聘教授", "副教授", "副研究员", "教授", "讲师", "研究员", "实验师"]
 
 
 class TextExtractor(HTMLParser):
@@ -75,7 +95,7 @@ def redact_privacy(text: str) -> str:
 def extract_section(text: str, heading: str, max_chars: int = 500) -> str:
     lines = [line.strip() for line in text.splitlines()]
     for index, line in enumerate(lines):
-        normalized = line.lstrip("#").strip()
+        normalized = normalize_heading_candidate(line)
         if normalized not in {heading, f"{heading}：", f"{heading}:"}:
             continue
 
@@ -84,7 +104,7 @@ def extract_section(text: str, heading: str, max_chars: int = 500) -> str:
             next_line = next_line.strip()
             if not next_line:
                 continue
-            if SECTION_RE.match(next_line) and collected:
+            if SECTION_RE.match(normalize_heading_candidate(next_line)):
                 break
             if next_line in {f"{heading}：", f"{heading}:"}:
                 continue
@@ -92,6 +112,47 @@ def extract_section(text: str, heading: str, max_chars: int = 500) -> str:
             if sum(len(item) for item in collected) >= max_chars:
                 break
         return "\n".join(collected).strip()[:max_chars]
+    return ""
+
+
+def extract_sections(text: str, max_chars_per_section: int = 4000) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        normalized = normalize_heading_candidate(line)
+        match = SECTION_RE.match(normalized)
+        if match:
+            current = match.group(2)
+            sections.setdefault(current, [])
+            continue
+        if current is None:
+            continue
+        if SECTION_RE.match(normalize_heading_candidate(line)):
+            continue
+        if line == current or line in {f"{current}：", f"{current}:"}:
+            continue
+        if sum(len(item) for item in sections[current]) >= max_chars_per_section:
+            continue
+        sections[current].append(line)
+
+    return {key: "\n".join(value).strip()[:max_chars_per_section] for key, value in sections.items() if value}
+
+
+def normalize_heading_candidate(line: str) -> str:
+    line = line.strip().lstrip("#").strip()
+    line = re.sub(r"^[*•\-]+\s*", "", line)
+    return line.strip()
+
+
+def first_section(sections: dict[str, str], keys: list[str]) -> str:
+    for key in keys:
+        value = sections.get(key, "").strip()
+        if value:
+            return value
     return ""
 
 
@@ -115,11 +176,11 @@ def guess_name(text: str) -> str:
         r"^姓名\s*[:：]\s*([\u4e00-\u9fff·]{2,8})",
         r"^([\u4e00-\u9fff·]{2,8})的个人主页$",
         r"^欢迎来到([\u4e00-\u9fff·]{2,8})的个人主页$",
-        r"^([\u4e00-\u9fff·]{2,8})\s*(特聘教授|教授|副教授|讲师|研究员|副研究员|博士)?$",
+        rf"^([\u4e00-\u9fff·]{{2,8}})\s*({'|'.join(map(re.escape, TITLE_WORDS + ['博士']))})?$",
         r"^([\u4e00-\u9fff])\s+([\u4e00-\u9fff]{1,3})$",
     ]
     skipped = ["学院", "大学", "首页", "教师个人主页", "导航", "目录", "English", "欢迎"]
-    titles = {"特聘教授", "教授", "副教授", "讲师", "研究员", "副研究员", "博士"}
+    titles = set(TITLE_WORDS + ["博士"])
 
     for line in lines[:30]:
         clean = line.lstrip("#").strip()
@@ -134,11 +195,14 @@ def guess_name(text: str) -> str:
 
 
 def guess_title(text: str) -> str:
-    explicit = extract_by_alias(text, FIELD_ALIASES["title"], max_chars=80)
-    if explicit:
-        return explicit
+    for alias in FIELD_ALIASES["title"]:
+        pattern = re.compile(rf"{re.escape(alias)}\s*[:：]\s*({'|'.join(map(re.escape, TITLE_WORDS))})")
+        for line in text.splitlines()[:80]:
+            match = pattern.search(line)
+            if match:
+                return match.group(1)
     first_lines = "\n".join(text.splitlines()[:40])
-    for title in ["特聘教授", "副教授", "副研究员", "教授", "讲师", "研究员"]:
+    for title in TITLE_WORDS:
         if title in first_lines:
             return title
     return ""
@@ -156,28 +220,76 @@ def guess_college(text: str, fallback: str = "") -> str:
 
 
 def is_probable_teacher_page(text: str) -> bool:
+    return classify_teacher_page(text)[0]
+
+
+def classify_teacher_page(text: str) -> tuple[bool, str]:
     if len(text) < 20:
-        return False
+        return False, "too_short"
+    hard_negative = ["正在同步中，请稍后再试", "Service Temporarily Unavailable"]
+    for token in hard_negative:
+        if token in text[:300]:
+            return False, f"hard_negative:{token}"
+
     positive = ["教师个人主页", "个人资料", "个人简介", "个人简历", "研究领域", "研究方向", "职称", "电子邮箱"]
+    english_positive = [
+        "homepage",
+        "biography",
+        "research interest",
+        "research interests",
+        "research",
+        "publications",
+        "publication",
+        "professor",
+        "school of computer science",
+        "soochow university",
+    ]
     negative = ["学院列表", "教师分类查询", "热点主页", "最新更新"]
     positive_hits = sum(1 for token in positive if token in text)
+    lowered = text.lower()
+    english_hits = sum(1 for token in english_positive if token in lowered)
     negative_hits = sum(1 for token in negative if token in text[:300])
-    return positive_hits >= 2 and negative_hits < 3
+    if negative_hits >= 3:
+        return False, "navigation_or_listing_page"
+    if positive_hits >= 2:
+        return True, "chinese_teacher_signals"
+    if english_hits >= 3:
+        return True, "english_teacher_signals"
+    mixed_template_colleges = [
+        "计算机科学与技术学院",
+        "功能纳米与软物质研究院",
+        "纳米科学技术学院",
+        "数学科学学院",
+        "物理科学与技术学院",
+        "未来科学与工程学院",
+    ]
+    mixed_template_tokens = ["研究兴趣", "论文发表", "论文与著作", "教授", "副教授", "讲师"]
+    if any(college in text[:500] for college in mixed_template_colleges) and any(
+        token in text for token in mixed_template_tokens
+    ):
+        return True, "mixed_template_teacher_signals"
+    return False, f"weak_teacher_signals:positive={positive_hits},english={english_hits},negative={negative_hits}"
 
 
 def parse_teacher_page(html: str, url: str = "", college: str = "") -> TeacherDoc:
     raw_text = normalize_obfuscated_email(html_to_text(html))
     text = redact_privacy(raw_text)
+    sections = extract_sections(text)
+    research = first_section(sections, ["研究领域", "研究方向", "科研方向"])
+    papers = first_section(sections, ["论文", "学术论文", "发表论文", "科研成果", "科技成果"])
+    profile = first_section(sections, ["个人简介", "个人简历", "个人概况"])
     doc_id = hashlib.sha1((url + text[:200]).encode("utf-8", errors="ignore")).hexdigest()[:16]
-    return TeacherDoc(
+    doc = TeacherDoc(
         doc_id=doc_id,
         name=guess_name(text),
         college=guess_college(text, fallback=college),
         title=guess_title(text),
-        research=extract_by_alias(text, FIELD_ALIASES["research"], max_chars=500),
-        papers=extract_by_alias(text, FIELD_ALIASES["papers"], max_chars=800),
-        profile=extract_by_alias(text, FIELD_ALIASES["profile"], max_chars=800),
+        research=research or extract_by_alias(text, FIELD_ALIASES["research"], max_chars=500),
+        papers=papers or extract_by_alias(text, FIELD_ALIASES["papers"], max_chars=800),
+        profile=profile or extract_by_alias(text, FIELD_ALIASES["profile"], max_chars=800),
         content=text,
         url=url,
         final_url=url,
     )
+    doc.extra["sections"] = sections
+    return doc

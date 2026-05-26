@@ -12,3 +12,6 @@ data/processed/
 data/index/
 *.log
 *.pptx
+debug_web_suda.html
+debug_ajax/
+debug/
