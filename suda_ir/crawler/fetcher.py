@@ -192,6 +192,7 @@ def crawl_static_pages(
     max_pages: int = 100,
     pause_range: tuple[float, float] = (1.0, 3.0),
     allowed_domains: set[str] | None = None,
+    follow_links: bool = True,
 ) -> list[FetchedPage]:
     queue = [normalize_url(seed) for seed in seeds]
     visited: set[str] = set()
@@ -209,6 +210,9 @@ def crawl_static_pages(
             time.sleep(random.uniform(*pause_range))
             continue
         pages.append(page)
+        if not follow_links:
+            time.sleep(random.uniform(*pause_range))
+            continue
         if page.redirect_url and page.redirect_url not in visited and page.redirect_url not in queue:
             queue.append(page.redirect_url)
         for link in discover_links(page.final_url, page.html, allowed_domains=allowed_domains):
