@@ -47,6 +47,101 @@ pip install -r requirements.txt
 streamlit run suda_ir/app/streamlit_app.py
 ```
 
+导入已交接的本地 HTML：
+
+```bash
+python scripts/parse_handoff_html_to_jsonl.py ../handoff_teacher_html_5_colleges_2026-05-26 \
+  --output data/processed/handoff_teachers.jsonl
+```
+
+清洗导出的教师 JSONL：
+
+```bash
+python scripts/clean_teacher_jsonl.py \
+  --input data/processed/handoff_teachers.jsonl \
+  --output data/processed/handoff_teachers.clean.jsonl
+```
+
+## 最终数据格式
+
+最终用于检索的教师数据保存在 `data/processed/handoff_teachers.clean.jsonl` 中，采用 **JSONL** 格式：
+
+- 每行一个教师文档
+- 每行是一个完整 JSON 对象
+- 适合后续直接做 BM25 建索引、字段检索、向量化或导入数据库
+
+顶层字段结构如下：
+
+```json
+{
+  "doc_id": "7862149ee883b878",
+  "name": "袁建宇",
+  "college": "功能纳米与软物质研究院",
+  "title": "副研究员",
+  "research": "主要研究方向为基于溶液法制程的新型光伏材料与器件：...",
+  "papers": "120余篇，撰写专著章节1章，总引用~4500次，H因子40，...",
+  "profile": "袁建宇 (Yuan Jianyu)\n2021年8月-至今, 苏州大学功能纳米与软物质实验室，教授...",
+  "content": "功能纳米与软物质研究院\n\n袁建宇\n\n副研究员\n\n个人简介\n...",
+  "url": "https://web.suda.edu.cn/jyyuan/",
+  "final_url": "https://web.suda.edu.cn/jyyuan/",
+  "extra": {
+    "sections": {
+      "个人简介": "...",
+      "研究领域": "...",
+      "论文": "...",
+      "招生信息": "..."
+    },
+    "seed_file": "../handoff_teacher_html_5_colleges_2026-05-26/colleges/功能纳米与软物质研究院/teacher_seeds.csv",
+    "raw_path": "../handoff_teacher_html_5_colleges_2026-05-26/功能纳米与软物质研究院/3458a522122bfeb6.html",
+    "is_teacher_page": true,
+    "page_reason": "chinese_teacher_signals",
+    "source": "handoff_html",
+    "cleaned_from": "handoff_teachers.jsonl",
+    "clean_quality": "high",
+    "clean_flags": []
+  }
+}
+```
+
+字段含义如下：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `doc_id` | `str` | 文档唯一 ID，用于索引和检索结果定位 |
+| `name` | `str` | 教师姓名 |
+| `college` | `str` | 所属学院/研究院，优先使用种子目录名 |
+| `title` | `str` | 职称，如教授、副教授、研究员等 |
+| `research` | `str` | 研究方向/研究领域，适合做主题召回 |
+| `papers` | `str` | 论文、成果、引用统计等长文本 |
+| `profile` | `str` | 个人简介、教育/经历摘要等长文本 |
+| `content` | `str` | 重组后的全文正文，适合做全文检索主字段 |
+| `url` | `str` | 原始教师主页 URL |
+| `final_url` | `str` | 跳转后的最终 URL；若无跳转则与 `url` 相同 |
+| `extra` | `dict` | 辅助元数据、原始解析信息、清洗质量标记 |
+
+`extra` 中当前常用的子字段：
+
+| 子字段 | 含义 |
+|---|---|
+| `sections` | 从页面中按栏目抽出的结构化小节，如“个人简介”“研究领域”“论文” |
+| `seed_file` | 该教师 URL 来源的种子 CSV 文件 |
+| `raw_path` | 对应原始 HTML 的本地路径 |
+| `is_teacher_page` | 是否判定为教师页 |
+| `page_reason` | 教师页判定依据，如 `chinese_teacher_signals` |
+| `source` | 数据来源标记，目前为 `handoff_html` |
+| `cleaned_from` | 说明该文件由哪个原始 JSONL 清洗得到 |
+| `clean_quality` | 清洗质量等级：`high` / `medium` / `low` |
+| `clean_flags` | 清洗时发现的问题标记，如 `missing_profile`、`lab_like_homepage` |
+
+当前相关产物说明：
+
+| 文件 | 说明 |
+|---|---|
+| `data/processed/handoff_teachers.jsonl` | 从本地 HTML 初步解析得到的原始结构化结果 |
+| `data/processed/handoff_teachers.clean.jsonl` | 清洗后的完整数据，推荐作为检索输入 |
+| `data/processed/handoff_teachers.filtered.jsonl` | 在清洗基础上去掉 `low` 质量样本后的版本 |
+| `data/processed/*.report.json` | 对应清洗/过滤统计报告 |
+
 ## 基础流程
 
 1. 从学院/教师页面爬取 HTML。
@@ -73,4 +168,3 @@ streamlit run suda_ir/app/streamlit_app.py
 - 语义向量检索：`sentence-transformers`、`text2vec` 或中文 BGE 模型。
 - LLM 重排序：BM25 召回 Top-K 后调用大模型评分。
 - 评价指标：Precision@5、MRR、查询耗时。
-
