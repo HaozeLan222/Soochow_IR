@@ -47,24 +47,36 @@ pip install -r requirements.txt
 streamlit run suda_ir/app/streamlit_app.py
 ```
 
-导入已交接的本地 HTML：
+导入本项目中的本地 HTML：
 
 ```bash
-python scripts/parse_handoff_html_to_jsonl.py ../handoff_teacher_html_5_colleges_2026-05-26 \
-  --output data/processed/handoff_teachers.jsonl
+python scripts/parse_handoff_html_to_jsonl.py data/raw \
+  --seed-root data/seeds/colleges \
+  --output data/processed/handoff/handoff_teachers.jsonl \
+  --report data/processed/handoff/handoff_teachers.report.json \
+  --skip-nonteacher
 ```
 
 清洗导出的教师 JSONL：
 
 ```bash
 python scripts/clean_teacher_jsonl.py \
-  --input data/processed/handoff_teachers.jsonl \
-  --output data/processed/handoff_teachers.clean.jsonl
+  --input data/processed/handoff/handoff_teachers.jsonl \
+  --output data/processed/handoff/handoff_teachers.clean.jsonl \
+  --report data/processed/handoff/handoff_teachers.clean.report.json
 ```
+
+检查汇总数量：
+
+```bash
+python -c "from pathlib import Path; print(sum(1 for _ in Path('data/processed/handoff/handoff_teachers.jsonl').open(encoding='utf-8'))); print(sum(1 for _ in Path('data/processed/handoff/handoff_teachers.clean.jsonl').open(encoding='utf-8')))"
+```
+
+当前 5 个学院的预期输出为 `283`、`283`。如果数量不同，优先检查是否漏写 `--seed-root data/seeds/colleges` 或 `--skip-nonteacher`。
 
 ## 最终数据格式
 
-最终用于检索的教师数据保存在 `data/processed/handoff_teachers.clean.jsonl` 中，采用 **JSONL** 格式：
+最终用于检索的教师数据保存在 `data/processed/handoff/handoff_teachers.clean.jsonl` 中，采用 **JSONL** 格式：
 
 - 每行一个教师文档
 - 每行是一个完整 JSON 对象
@@ -137,10 +149,10 @@ python scripts/clean_teacher_jsonl.py \
 
 | 文件 | 说明 |
 |---|---|
-| `data/processed/handoff_teachers.jsonl` | 从本地 HTML 初步解析得到的原始结构化结果 |
-| `data/processed/handoff_teachers.clean.jsonl` | 清洗后的完整数据，推荐作为检索输入 |
-| `data/processed/handoff_teachers.filtered.jsonl` | 在清洗基础上去掉 `low` 质量样本后的版本 |
-| `data/processed/*.report.json` | 对应清洗/过滤统计报告 |
+| `data/processed/handoff/handoff_teachers.jsonl` | 从本地 HTML 初步解析得到的原始结构化结果 |
+| `data/processed/handoff/handoff_teachers.clean.jsonl` | 清洗后的完整数据，推荐作为检索输入 |
+| `data/processed/handoff/handoff_teachers.filtered.jsonl` | 在清洗基础上去掉 `low` 质量样本后的版本 |
+| `data/processed/handoff/*.report.json` | 对应清洗/过滤统计报告 |
 
 ## 基础流程
 

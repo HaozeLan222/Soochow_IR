@@ -53,6 +53,43 @@ class HandoffImportTests(unittest.TestCase):
         expected = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16] + ".html"
         self.assertEqual(raw_filename(url), expected)
 
+    def test_build_documents_accepts_separate_seed_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw_root = root / "raw"
+            seed_root = root / "seeds" / "colleges"
+            college = "物理科学与技术学院"
+            html_dir = raw_root / college
+            seed_dir = seed_root / college
+            html_dir.mkdir(parents=True)
+            seed_dir.mkdir(parents=True)
+
+            url = "https://web.suda.edu.cn/physics_test/"
+            html_name = raw_filename(url)
+            html = """
+            <html><body>
+            <h2>教师个人主页</h2>
+            <p>姓名：李四</p>
+            <p>职称：教授</p>
+            <h3>研究领域</h3>
+            <p>量子材料</p>
+            </body></html>
+            """
+            (html_dir / html_name).write_text(html, encoding="utf-8")
+
+            with (seed_dir / "teacher_seeds.csv").open("w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["college", "name", "url"])
+                writer.writeheader()
+                writer.writerow({"college": college, "name": "李四", "url": url})
+
+            docs, report = build_documents(raw_root, seed_root=seed_root)
+
+            self.assertEqual(len(docs), 1)
+            self.assertEqual(len(report), 1)
+            self.assertEqual(docs[0].name, "李四")
+            self.assertEqual(docs[0].college, college)
+            self.assertEqual(docs[0].url, url)
+
 
 if __name__ == "__main__":
     unittest.main()

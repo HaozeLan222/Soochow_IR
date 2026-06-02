@@ -594,8 +594,8 @@ def clean_dataset(docs: list[TeacherDoc], *, drop_low_quality: bool = False) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Clean parsed teacher JSONL for retrieval use.")
-    parser.add_argument("--input", default="data/processed/handoff_teachers.jsonl")
-    parser.add_argument("--output", default="data/processed/handoff_teachers.clean.jsonl")
+    parser.add_argument("--input", default="data/processed/handoff/handoff_teachers.jsonl")
+    parser.add_argument("--output", default="data/processed/handoff/handoff_teachers.clean.jsonl")
     parser.add_argument("--report", help="Path to write clean report JSON.")
     parser.add_argument("--drop-low-quality", action="store_true", help="Drop documents whose clean quality is low.")
     args = parser.parse_args()

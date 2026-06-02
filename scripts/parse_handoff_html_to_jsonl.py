@@ -34,16 +34,16 @@ def raw_filename(url: str) -> str:
     return f"{digest}.html"
 
 
-def discover_seed_files(handoff_root: str | Path) -> list[Path]:
-    colleges_dir = Path(handoff_root) / "colleges"
+def discover_seed_files(handoff_root: str | Path, seed_root: str | Path | None = None) -> list[Path]:
+    colleges_dir = Path(seed_root) if seed_root else Path(handoff_root) / "colleges"
     if not colleges_dir.exists():
         return []
     return sorted(colleges_dir.glob("*/teacher_seeds.csv"))
 
 
-def load_seed_index(handoff_root: str | Path) -> dict[str, SeedMeta]:
+def load_seed_index(handoff_root: str | Path, seed_root: str | Path | None = None) -> dict[str, SeedMeta]:
     index: dict[str, SeedMeta] = {}
-    for seed_file in discover_seed_files(handoff_root):
+    for seed_file in discover_seed_files(handoff_root, seed_root=seed_root):
         with seed_file.open("r", encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -73,11 +73,12 @@ def iter_handoff_html_files(handoff_root: str | Path) -> list[Path]:
 def build_documents(
     handoff_root: str | Path,
     *,
+    seed_root: str | Path | None = None,
     include_nonteacher: bool = True,
     dedupe: bool = True,
 ) -> tuple[list[TeacherDoc], list[dict[str, object]]]:
     handoff_root = Path(handoff_root)
-    seed_index = load_seed_index(handoff_root)
+    seed_index = load_seed_index(handoff_root, seed_root=seed_root)
     docs: list[TeacherDoc] = []
     report: list[dict[str, object]] = []
     seen_keys: set[str] = set()
@@ -162,9 +163,13 @@ def summarize_documents(docs: list[TeacherDoc]) -> dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Parse handoff HTML directories into a single JSONL file.")
-    parser.add_argument("handoff_root", help="Path to handoff_teacher_html_* directory.")
-    parser.add_argument("--output", default="data/processed/handoff_teachers.jsonl")
+    parser = argparse.ArgumentParser(description="Parse local teacher HTML directories into a single JSONL file.")
+    parser.add_argument("handoff_root", help="Path to raw HTML root, e.g. data/raw.")
+    parser.add_argument(
+        "--seed-root",
+        help="Optional seed directory. Defaults to <handoff_root>/colleges. Use data/seeds/colleges for this repo.",
+    )
+    parser.add_argument("--output", default="data/processed/handoff/handoff_teachers.jsonl")
     parser.add_argument("--report", help="Path for parse report JSON.")
     parser.add_argument("--skip-nonteacher", action="store_true", help="Skip pages that do not look like teacher pages.")
     parser.add_argument("--keep-duplicates", action="store_true", help="Do not deduplicate by url/name.")
@@ -172,6 +177,7 @@ def main() -> None:
 
     docs, report = build_documents(
         args.handoff_root,
+        seed_root=args.seed_root,
         include_nonteacher=not args.skip_nonteacher,
         dedupe=not args.keep_duplicates,
     )
