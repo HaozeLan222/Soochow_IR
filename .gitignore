@@ -15,3 +15,10 @@ data/index/
 debug_web_suda.html
 debug_ajax/
 debug/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Backend static files (built from frontend)
+backend/static/
