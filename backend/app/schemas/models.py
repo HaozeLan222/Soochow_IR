@@ -16,8 +16,14 @@ class TeacherResult(BaseModel):
     college: str = ""
     title: str = ""
     research: str = ""
+    papers: str = ""
     profile: str = ""
+    content: str = ""
     url: str = ""
+    final_url: str = ""
+    email: str = ""
+    phone: str = ""
+    photo_url: str = ""
     score: float = 0.0
     matched_terms: list[str] = []
 

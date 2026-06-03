@@ -10,11 +10,6 @@ export async function searchTeachers(params) {
   return response.data;
 }
 
-export async function getTeacher(docId) {
-  const response = await api.get(`/teachers/${docId}`);
-  return response.data;
-}
-
 export async function getStats() {
   const response = await api.get("/stats");
   return response.data;
