@@ -22,3 +22,9 @@ frontend/dist/
 
 # Backend static files (built from frontend)
 backend/static/
+
+# handoff
+handoff/
+
+# opencode
+.opencode/

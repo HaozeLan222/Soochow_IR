@@ -9,7 +9,7 @@ class Settings:
     VERSION: str = "0.1.0"
     DATA_DIR: Path = Path(os.getenv("SUDA_IR_DATA_DIR", "data"))
     DEFAULT_DATA_FILE: str = os.getenv(
-        "SUDA_IR_DEFAULT_DATA", "data/sample/teachers.jsonl"
+        "SUDA_IR_DEFAULT_DATA", "mock/teachers.jsonl"
     )
     STATIC_DIR: Path = Path("static")
     CORS_ORIGINS: list[str] = [
