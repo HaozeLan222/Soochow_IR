@@ -273,7 +273,7 @@ def classify_teacher_page(text: str) -> tuple[bool, str]:
 
 def parse_teacher_page(html: str, url: str = "", college: str = "") -> TeacherDoc:
     raw_text = normalize_obfuscated_email(html_to_text(html))
-    text = redact_privacy(raw_text)
+    text = raw_text
     sections = extract_sections(text)
     research = first_section(sections, ["研究领域", "研究方向", "科研方向"])
     papers = first_section(sections, ["论文", "学术论文", "发表论文", "科研成果", "科技成果"])
