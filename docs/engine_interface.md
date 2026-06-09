@@ -113,7 +113,8 @@ class MyEngine(SearchEngineBase):
 
 | 名称 | 类 | 说明 |
 |------|------|------|
-| `"bm25"` | `BM25Engine` | 基于 jieba 分词 + BM25 算法，支持 all/name/college 三种 field |
+| `"bm25"` | `BM25Engine` | 基于 jieba 分词 + BM25 算法，支持 all/name/college/research/papers/title |
+| `"optimized"` | `OptimizedEngine` | 字段级 BM25 + 查询扩展 + 姓名模糊匹配，支持 all/name/college/research/papers/title |
 | `"stub"` | `SearchEngineStub` | 纯子串匹配，硬编码分数，用于开发测试 |
 
 查看已注册引擎：`engine.list_engines()`。
@@ -135,6 +136,7 @@ def get_engine(engine_name: str = "bm25", data_path: str | None = None) -> Searc
 ```python
 import engine.bm25   # noqa: F401, E402
 import engine.stub    # noqa: F401, E402
+import engine.optimized  # noqa: F401, E402
 import engine.my_engine  # noqa: F401, E402  ← 添加这一行
 ```
 

@@ -23,6 +23,18 @@ class SearchTests(unittest.TestCase):
         results = self.searcher.search("计算机", field="college")
         self.assertGreaterEqual(len(results), 2)
 
+    def test_optimized_query_expansion(self) -> None:
+        searcher = TutorSearcher(load_jsonl("data/sample/teachers.jsonl"), mode="optimized")
+        results = searcher.search("NLP")
+        self.assertTrue(results)
+        self.assertEqual(results[0].doc.name, "周国栋")
+
+    def test_optimized_fuzzy_name_search(self) -> None:
+        searcher = TutorSearcher(load_jsonl("data/sample/teachers.jsonl"), mode="optimized")
+        results = searcher.search("周国东", field="name")
+        self.assertTrue(results)
+        self.assertEqual(results[0].doc.name, "周国栋")
+
 
 if __name__ == "__main__":
     unittest.main()

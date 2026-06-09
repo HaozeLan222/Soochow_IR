@@ -2,18 +2,26 @@ from __future__ import annotations
 
 from domain.search import SearchResult
 from domain.teacher import TeacherDoc
+from suda_ir.fielded_index import FieldedBM25Index
+from suda_ir.fuzzy import fuzzy_name_search
 from suda_ir.index import BM25Index
 
 
 class TutorSearcher:
-    def __init__(self, docs: list[TeacherDoc]) -> None:
+    def __init__(self, docs: list[TeacherDoc], mode: str = "baseline") -> None:
+        self.mode = mode
         self.index = BM25Index(docs)
+        self.optimized_index = FieldedBM25Index(docs)
 
     def search(self, query: str, top_k: int = 10, field: str = "all") -> list[SearchResult]:
         if field == "name":
+            if self.mode == "optimized":
+                return fuzzy_name_search(query, self.index.docs, top_k=top_k)
             return self._search_name(query, top_k)
-        if field == "college":
-            return self._filter_contains("college", query, top_k)
+        if field in {"college", "research", "papers", "title"}:
+            return self._filter_contains(field, query, top_k)
+        if self.mode == "optimized":
+            return self.optimized_index.search(query, top_k=top_k)
         return self.index.search(query, top_k=top_k)
 
     def _search_name(self, query: str, top_k: int) -> list[SearchResult]:

@@ -11,14 +11,12 @@ router = APIRouter(prefix="/api", tags=["search"])
 @router.post("/search", response_model=SearchResponse)
 def search(
     body: FrontendQuery,
+    engine_name: str = Query("bm25", alias="engine", description="Engine name: bm25, optimized, stub"),
     data: str | None = Query(None, description="Override data file path"),
 ) -> SearchResponse:
-    engine = get_engine(data_path=data)
+    engine = get_engine(engine_name=engine_name, data_path=data)
     eq = body.to_engine_query()
     results = engine.search(eq)
-
-    if eq.college:
-        results = [r for r in results if eq.college in (r.doc.college or "")]
 
     items = [TeacherResult.from_search_result(r) for r in results]
     return SearchResponse(total=len(items), results=items)

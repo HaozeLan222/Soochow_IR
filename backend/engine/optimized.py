@@ -10,15 +10,15 @@ from suda_ir.searcher import TutorSearcher
 from suda_ir.storage import load_jsonl
 
 
-@register_engine("bm25")
-class BM25Engine(SearchEngineBase):
+@register_engine("optimized")
+class OptimizedEngine(SearchEngineBase):
     def __init__(self) -> None:
         self._docs: list[TeacherDoc] = []
         self._searcher: TutorSearcher | None = None
 
     def load(self, data_path: str) -> None:
         self._docs = load_jsonl(data_path)
-        self._searcher = TutorSearcher(self._docs)
+        self._searcher = TutorSearcher(self._docs, mode="optimized")
 
     def search(self, query: EngineQuery) -> list[SearchResult]:
         if not self._searcher:
@@ -47,3 +47,4 @@ class BM25Engine(SearchEngineBase):
             "total_teachers": len(self._docs),
             "colleges": [{"name": k, "count": v} for k, v in counts.most_common()],
         }
+

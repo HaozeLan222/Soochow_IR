@@ -13,10 +13,17 @@ st.title("苏州大学导师信息检索")
 
 data_path = st.sidebar.text_input("数据文件", "data/sample/teachers.jsonl")
 top_k = st.sidebar.slider("返回数量", 1, 20, 5)
-field = st.sidebar.selectbox("查询类型", ["all", "name", "college"], format_func=lambda x: {
+mode = st.sidebar.selectbox("检索系统", ["baseline", "optimized"], format_func=lambda x: {
+    "baseline": "基础 BM25",
+    "optimized": "优化检索",
+}[x])
+field = st.sidebar.selectbox("查询类型", ["all", "name", "college", "research", "papers", "title"], format_func=lambda x: {
     "all": "综合查询",
     "name": "姓名",
     "college": "学院",
+    "research": "研究方向",
+    "papers": "论文成果",
+    "title": "职称",
 }[x])
 
 query = st.text_input("输入查询条件", placeholder="例如：自然语言处理、周国栋、知识图谱")
@@ -26,7 +33,7 @@ if query:
         st.error(f"数据文件不存在：{data_path}")
         st.stop()
     docs = load_jsonl(data_path)
-    searcher = TutorSearcher(docs)
+    searcher = TutorSearcher(docs, mode=mode)
     results = searcher.search(query, top_k=top_k, field=field)
     st.caption(f"共返回 {len(results)} 条结果")
     for rank, result in enumerate(results, start=1):

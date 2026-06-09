@@ -1,0 +1,8 @@
+{"query":"自然语言处理","field":"all","relevant":["sample-001"]}
+{"query":"NLP","field":"all","relevant":["sample-001"]}
+{"query":"周国栋","field":"name","relevant":["sample-001"]}
+{"query":"周国东","field":"name","relevant":["sample-001"]}
+{"query":"知识图谱","field":"all","relevant":["sample-002"]}
+{"query":"问答系统","field":"all","relevant":["sample-002"]}
+{"query":"医学影像","field":"all","relevant":["sample-003"]}
+{"query":"组合优化","field":"all","relevant":["sample-004"]}

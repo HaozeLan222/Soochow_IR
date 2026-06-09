@@ -12,7 +12,7 @@ from domain.teacher import TeacherDoc
 class FrontendQuery(BaseModel):
     """前端发送的查询模型。"""
     query: str = Field(..., min_length=1, description="Search query")
-    field: str = Field(default="all", description="Search field: all, name, college")
+    field: str = Field(default="all", description="Search field: all, name, college, research, papers, title")
     top_k: int = Field(default=10, ge=1, le=100, description="Max results")
     college: str | None = Field(default=None, description="Filter by college name")
 

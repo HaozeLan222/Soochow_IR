@@ -11,11 +11,12 @@ def main() -> None:
     parser.add_argument("--data", default="data/sample/teachers.jsonl")
     parser.add_argument("--query", required=True)
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--field", choices=["all", "name", "college"], default="all")
+    parser.add_argument("--field", choices=["all", "name", "college", "research", "papers", "title"], default="all")
+    parser.add_argument("--mode", choices=["baseline", "optimized"], default="baseline")
     args = parser.parse_args()
 
     docs = load_jsonl(args.data)
-    searcher = TutorSearcher(docs)
+    searcher = TutorSearcher(docs, mode=args.mode)
     results = searcher.search(args.query, top_k=args.top_k, field=args.field)
 
     if not results:
