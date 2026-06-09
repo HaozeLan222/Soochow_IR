@@ -6,7 +6,7 @@ const api = axios.create({
 });
 
 export async function searchTeachers(params) {
-  const response = await api.get("/search", { params });
+  const response = await api.post("/search", params);
   return response.data;
 }
 

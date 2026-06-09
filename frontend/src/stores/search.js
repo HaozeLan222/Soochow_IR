@@ -55,7 +55,7 @@ export const useSearchStore = defineStore("search", {
 
   actions: {
     async executeSearch(query, field = "all", topK = 10) {
-      const data = await searchTeachers({ q: query, field, top_k: topK });
+      const data = await searchTeachers({ query, field, top_k: topK });
       const session = {
         id: crypto.randomUUID(),
         query,
