@@ -74,6 +74,57 @@ python -c "from pathlib import Path; print(sum(1 for _ in Path('data/processed/h
 
 当前 5 个学院的预期输出为 `283`、`283`。如果数量不同，优先检查是否漏写 `--seed-root data/seeds/colleges` 或 `--skip-nonteacher`。
 
+## IR 模型与评测入口
+
+当前推荐的检索输入是：
+
+```text
+data/processed/handoff/handoff_teachers.clean.jsonl
+```
+
+该文件由本地 HTML 解析和清洗脚本生成，属于数据产物，默认不提交 GitHub；需要由组员在本地或通过压缩包交接后生成。
+
+当前代码中保留三类主要检索/评测模式：
+
+| 模式 | 含义 |
+|---|---|
+| `baseline` | 基础 BM25 检索 |
+| `optimized` | 字段 BM25 + 模糊姓名 + 查询扩展 + 查询意图识别 + 学院过滤 + paper RRF |
+| `conditional_semantic` | 在 `optimized` 基础上，对长自然语言/语义改写类 query 条件触发 BGE 语义向量补充召回 |
+
+正式消融评测：
+
+```bash
+python scripts/evaluate_search.py \
+  --data data/processed/handoff/handoff_teachers.clean.jsonl \
+  --queries data/eval/queries.jsonl \
+  --qrels data/eval/qrels.jsonl \
+  --top-k 5 \
+  --ablation
+```
+
+语义泛化补充评测：
+
+```bash
+python -m pip install -r requirements-semantic.txt
+
+python scripts/evaluate_search.py \
+  --data data/processed/handoff/handoff_teachers.clean.jsonl \
+  --queries data/eval/semantic_generalization_queries.jsonl \
+  --qrels data/eval/semantic_generalization_qrels.jsonl \
+  --top-k 5 \
+  --modes baseline,optimized,conditional_semantic,semantic,hybrid_semantic \
+  --semantic-model BAAI/bge-small-zh-v1.5 \
+  --semantic-cache data/processed/eval/bge-small-zh-v1.5.npz \
+  --semantic-local-files-only
+```
+
+说明：
+
+- `conditional_semantic` 不是无条件替代主模型，而是在 query 符合语义改写/自然语言描述特征时才补充向量召回，避免 embedding 噪声影响姓名、论文成果、短关键词等查询。
+- 详细设计、消融结果和后续优化建议见 `docs/ir_model_handoff.md`。
+- 阶段性方案讨论见 `docs/ir_optimization_plan.md`。
+
 ## 最终数据格式
 
 最终用于检索的教师数据保存在 `data/processed/handoff/handoff_teachers.clean.jsonl` 中，采用 **JSONL** 格式：

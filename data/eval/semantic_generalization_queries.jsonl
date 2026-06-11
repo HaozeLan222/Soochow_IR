@@ -1,0 +1,10 @@
+{"query_id":"S001","query":"研究人类语言理解和文本分析的老师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q013","note":"自然语言处理的语义改写"}
+{"query_id":"S002","query":"做跨语言文本分析与翻译技术的导师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q014","note":"机器翻译/跨语言处理的语义改写"}
+{"query_id":"S003","query":"研究智能问答和知识表示的老师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q015","note":"知识图谱/知识表示的语义改写"}
+{"query_id":"S004","query":"做图像识别与医学影像分析的老师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q016","note":"计算机视觉/医学影像的语义改写"}
+{"query_id":"S005","query":"研究非线性系统长期行为的导师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q017","note":"动力系统的语义改写"}
+{"query_id":"S006","query":"做柔性电子器件和可穿戴传感的老师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q018","note":"柔性传感器的语义改写"}
+{"query_id":"S007","query":"研究太阳能器件和能源材料的老师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q022/Q023","note":"有机太阳能电池/光伏材料的语义改写"}
+{"query_id":"S008","query":"研究文本情感理解和观点分析的老师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q020","note":"情感分析的语义改写"}
+{"query_id":"S009","query":"纳米学院研究二维材料界面调控的老师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q047","note":"二维材料/表界面的语义改写"}
+{"query_id":"S010","query":"数学学院研究微分方程理论和应用的导师","category":"semantic_generalization","intent":"semantic_rewrite","source_query_id":"Q048","note":"偏微分方程的语义改写"}

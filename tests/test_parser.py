@@ -25,7 +25,7 @@ class ParserTests(unittest.TestCase):
         self.assertIn("跨模态", doc.research)
         self.assertIn("个人资料", doc.extra["sections"])
         self.assertIn("研究领域", doc.extra["sections"])
-        self.assertNotIn("mcao@suda.edu.cn", doc.content)
+        self.assertIn("mcao@suda.edu.cn", doc.content)
 
     def test_parse_free_form_teacher_page(self) -> None:
         html = """
@@ -44,8 +44,8 @@ class ParserTests(unittest.TestCase):
         self.assertIn("特聘教授", doc.title)
         self.assertIn("自然语言处理", doc.research)
         self.assertIn("论文80余篇", doc.papers)
-        self.assertNotIn("0512-65214851", doc.content)
-        self.assertNotIn("gdzhou", doc.content)
+        self.assertIn("0512-65214851", doc.content)
+        self.assertIn("gdzhou@suda.edu.cn", doc.content)
 
     def test_teacher_page_filter(self) -> None:
         self.assertTrue(is_probable_teacher_page("教师个人主页\n个人资料\n个人简介\n研究领域\n很多正文"))

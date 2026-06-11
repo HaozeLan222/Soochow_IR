@@ -5,8 +5,8 @@ const api = axios.create({
   timeout: 10000,
 });
 
-export async function searchTeachers(params) {
-  const response = await api.post("/search", params);
+export async function searchTeachers(params, engine = "bm25") {
+  const response = await api.post(`/search?engine=${encodeURIComponent(engine)}`, params);
   return response.data;
 }
 

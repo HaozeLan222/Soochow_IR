@@ -65,6 +65,13 @@
           </el-radio-group>
         </div>
 
+        <div class="engine-group">
+          <el-radio-group v-model="engine" size="small">
+            <el-radio-button label="bm25">基础 BM25</el-radio-button>
+            <el-radio-button label="optimized">优化检索</el-radio-button>
+          </el-radio-group>
+        </div>
+
         <div class="topk-row">
           <span class="topk-label">结果数 {{ topK }}</span>
           <el-slider v-model="topK" :min="5" :max="50" :step="5" show-stops />
@@ -88,6 +95,7 @@ const store = useSearchStore();
 const query = ref("");
 const field = ref("all");
 const topK = ref(10);
+const engine = ref(store.engine || "bm25");
 
 const sortLabel = computed(() => {
   const map = { relevance: "相关度", name: "姓名", college: "学院" };
@@ -105,7 +113,7 @@ function isSelected(docId) {
 
 async function search() {
   if (!query.value.trim()) return;
-  await store.executeSearch(query.value.trim(), field.value, topK.value);
+  await store.executeSearch(query.value.trim(), field.value, topK.value, engine.value);
 }
 </script>
 
@@ -186,6 +194,11 @@ async function search() {
 }
 
 .field-group {
+  display: flex;
+  justify-content: center;
+}
+
+.engine-group {
   display: flex;
   justify-content: center;
 }

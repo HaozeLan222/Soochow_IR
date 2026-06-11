@@ -5,6 +5,7 @@ from domain.teacher import TeacherDoc
 from suda_ir.fielded_index import FieldedBM25Index
 from suda_ir.fuzzy import fuzzy_name_search
 from suda_ir.index import BM25Index
+from suda_ir.query_intent import analyze_query
 
 
 class TutorSearcher:
@@ -21,7 +22,24 @@ class TutorSearcher:
         if field in {"college", "research", "papers", "title"}:
             return self._filter_contains(field, query, top_k)
         if self.mode == "optimized":
-            return self.optimized_index.search(query, top_k=top_k)
+            intent = analyze_query(query, field=field)
+            allowed_doc_indices = self._college_doc_indices(intent.college) if intent.college else None
+            if allowed_doc_indices is not None and not allowed_doc_indices:
+                return []
+            candidate_k = max(top_k, 20) if intent.kind == "paper" else top_k
+            optimized_results = self.optimized_index.search(
+                intent.cleaned_query,
+                top_k=candidate_k,
+                use_expansion=intent.use_expansion,
+                use_fuzzy=intent.use_fuzzy,
+                field_weights=intent.field_weights,
+                expansion_weight=intent.expansion_weight,
+                allowed_doc_indices=allowed_doc_indices,
+            )
+            if intent.kind == "paper":
+                baseline_results = self.index.search(intent.original_query, top_k=candidate_k)
+                return self._rrf_merge([optimized_results, baseline_results], top_k=top_k)
+            return optimized_results[:top_k]
         return self.index.search(query, top_k=top_k)
 
     def _search_name(self, query: str, top_k: int) -> list[SearchResult]:
@@ -42,3 +60,28 @@ class TutorSearcher:
             if query and query in value:
                 results.append(SearchResult(doc=doc, score=1.0, matched_terms=[query]))
         return results[:top_k]
+
+    def _college_doc_indices(self, college: str) -> set[int]:
+        return {
+            index
+            for index, doc in enumerate(self.index.docs)
+            if college and college in (doc.college or "")
+        }
+
+    def _rrf_merge(self, ranked_lists: list[list[SearchResult]], *, top_k: int, c: int = 60) -> list[SearchResult]:
+        scores: dict[str, float] = {}
+        docs_by_id = {}
+        matched_terms: dict[str, set[str]] = {}
+        for ranked in ranked_lists:
+            for rank, result in enumerate(ranked, start=1):
+                doc_id = result.doc.doc_id
+                scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (c + rank)
+                docs_by_id[doc_id] = result.doc
+                matched_terms.setdefault(doc_id, set()).update(result.matched_terms)
+
+        merged = [
+            SearchResult(doc=docs_by_id[doc_id], score=score, matched_terms=sorted(matched_terms.get(doc_id, set())))
+            for doc_id, score in scores.items()
+        ]
+        merged.sort(key=lambda item: item.score, reverse=True)
+        return merged[:top_k]

@@ -7,6 +7,7 @@ export const useSearchStore = defineStore("search", {
     activeSessionId: null,
     sortMode: "relevance", // 'relevance' | 'name' | 'college'
     theme: "light", // 'light' | 'dark'
+    engine: "bm25", // 'bm25' | 'optimized'
   }),
 
   getters: {
@@ -54,13 +55,15 @@ export const useSearchStore = defineStore("search", {
   },
 
   actions: {
-    async executeSearch(query, field = "all", topK = 10) {
-      const data = await searchTeachers({ query, field, top_k: topK });
+    async executeSearch(query, field = "all", topK = 10, engine = this.engine) {
+      this.engine = engine;
+      const data = await searchTeachers({ query, field, top_k: topK }, engine);
       const session = {
         id: crypto.randomUUID(),
         query,
         field,
         topK,
+        engine,
         results: data.results || [],
         selectedIds: [],
         createdAt: Date.now(),
@@ -96,6 +99,10 @@ export const useSearchStore = defineStore("search", {
       this.sortMode = mode;
     },
 
+    setEngine(engine) {
+      this.engine = engine;
+    },
+
     toggleTheme() {
       this.theme = this.theme === "light" ? "dark" : "light";
     },
@@ -103,7 +110,7 @@ export const useSearchStore = defineStore("search", {
 
   persist: {
     key: "soochow-ir-search",
-    paths: ["sessions", "theme"],
+    paths: ["sessions", "theme", "engine"],
     beforeRestore: (context) => {
       // activeSessionId restored as-is; if session missing it'll be handled by getter
     },

@@ -36,16 +36,33 @@ class FieldedBM25Index:
                     self.field_doc_freqs[field][term] += 1
             self.field_avg_lens[field] = total_len / len(self.docs) if self.docs else 0.0
 
-    def search(self, query: str, top_k: int = 10, *, use_expansion: bool = True, use_fuzzy: bool = True) -> list[SearchResult]:
-        terms = weighted_query_terms(query) if use_expansion else {term: 1.0 for term in tokenize(query)}
+    def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        *,
+        use_expansion: bool = True,
+        use_fuzzy: bool = True,
+        field_weights: dict[str, float] | None = None,
+        expansion_weight: float = 0.65,
+        allowed_doc_indices: set[int] | None = None,
+    ) -> list[SearchResult]:
+        terms = (
+            weighted_query_terms(query, expansion_weight=expansion_weight)
+            if use_expansion
+            else {term: 1.0 for term in tokenize(query)}
+        )
         if not terms:
             return []
 
         expanded_phrases = expand_query(query) if use_expansion else [query.strip()]
+        active_weights = field_weights or FIELD_WEIGHTS
         scored: list[SearchResult] = []
         for doc_index, doc in enumerate(self.docs):
+            if allowed_doc_indices is not None and doc_index not in allowed_doc_indices:
+                continue
             score = 0.0
-            for field, field_weight in FIELD_WEIGHTS.items():
+            for field, field_weight in active_weights.items():
                 score += field_weight * self._score_field(doc_index, field, terms)
                 score += field_weight * self._phrase_bonus(doc, field, expanded_phrases)
 

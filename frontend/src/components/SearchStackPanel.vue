@@ -12,6 +12,7 @@
         <div class="query-text">{{ session.query }}</div>
         <div class="meta-row">
           <el-tag size="small" effect="plain">{{ session.field }}</el-tag>
+          <el-tag size="small" effect="plain" type="success">{{ engineLabel(session.engine) }}</el-tag>
           <span class="count">{{ session.results.length }} 条</span>
         </div>
         <el-button
@@ -34,6 +35,10 @@ import { useSearchStore } from "../stores/search.js";
 import { Close } from "@element-plus/icons-vue";
 
 const store = useSearchStore();
+
+function engineLabel(engine) {
+  return engine === "optimized" ? "优化检索" : "BM25";
+}
 </script>
 
 <style scoped>
