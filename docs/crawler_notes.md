@@ -217,14 +217,14 @@ fetch_error = 5
 
 ```text
 data/seeds/teacher_seeds.csv
-docs/team_plan.md
+docs/archive/team_plan_process_record.md
 suda_ir/crawler/fetcher.py
 suda_ir/crawler/parser.py
 suda_ir/crawler/run_crawler.py
 tests/test_parser.py
 ```
 
-其中 `docs/team_plan.md` 里有用户手写的分工备注，不确定是否要提交；其他文件都是本轮爬虫相关改动。
+其中 `docs/archive/team_plan_process_record.md` 里有早期分工备注；其他文件都是本轮爬虫相关改动。
 
 ### 下一步核心任务
 
@@ -1050,10 +1050,10 @@ git commit -m "Expand web.suda teacher crawler seeds"
 git push
 ```
 
-如果 `docs/team_plan.md` 中也记录了分工或进度，可以一并提交：
+如果 `docs/archive/team_plan_process_record.md` 中也记录了分工或进度，可以一并提交：
 
 ```bash
-git add docs/team_plan.md
+git add docs/archive/team_plan_process_record.md
 ```
 
 与清洗同学交接时，不通过 GitHub 传原始 HTML，建议用压缩包或共享盘。推荐交接目录：
