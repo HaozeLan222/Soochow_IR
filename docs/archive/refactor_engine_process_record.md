@@ -1,5 +1,7 @@
 # 后端 Engine 重构方案
 
+> 历史过程记录：本文记录后端 Engine 重构过程，当前可运行的 IR 模块说明以 `../ir_model_handoff.md` 和 `../engine_interface.md` 为准。
+
 更新时间：2026-06-09
 
 ## 一、现状分析

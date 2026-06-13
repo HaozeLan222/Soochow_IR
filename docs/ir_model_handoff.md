@@ -1,46 +1,153 @@
-# IR 检索系统优化交接文档
+# IR 检索系统技术总结与交接文档
 
-更新时间：2026-06-10
+更新时间：2026-06-12
 
-本文档用于交接当前 IR 检索系统的已实现能力、评测结果、代码入口和后续优化任务。当前版本已经不是单纯 BM25 baseline，而是具备 baseline/optimized 双模式、正式 qrels 评测和前端引擎切换的可演示版本。
+本文档用于交接当前 Soochow_IR 项目中 IR 检索系统的真实实现状态、算法创新点、评测结果、代码入口和后续优化边界。它可以直接作为后续汇报、实验报告和组员继续开发的技术总览。
 
-## 1. 当前结论
+## 1. 一句话结论
 
-本轮已按前期 plan 补齐以下关键点：
+当前项目已经从基础 BM25 检索升级为一个面向导师主页数据的自适应混合检索系统：
 
-1. `scripts/evaluate_search.py` 已支持正式 `queries.jsonl + qrels.jsonl` 评测，并输出 overall/per-category 指标。
-2. `suda_ir/ir/query_intent.py` 与 `backend/suda_ir/query_intent.py` 新增查询意图识别，包括学院别名、职称词、论文成果词、口语化 filler 处理。
-3. `FieldedBM25Index.search()` 支持动态字段权重、扩展词权重和候选文档过滤。
-4. optimized 检索支持学院 hard filter：如 `计科院/计算机学院/软件学院` 归一到 `计算机科学与技术学院`。
-5. optimized 检索支持按意图调整权重：研究方向、论文成果、学院+方向、职称+方向使用不同字段权重和 expansion weight。
-6. 论文成果类查询新增轻量 RRF：只在 `paper` intent 下融合 optimized fielded BM25 与 baseline BM25，避免论文长列表噪声。
-7. 前端已支持在搜索栏切换 `基础 BM25` 和 `优化检索`，并在搜索栈中记录 engine。
-8. 后端 `bm25/optimized` engine 均可通过 `/api/search?engine=...` 调用，后端副本逻辑已与主包同步。
+```text
+baseline BM25
+  -> 字段级 BM25
+  -> fuzzy 姓名匹配
+  -> 领域词典查询扩展
+  -> 查询意图识别
+  -> 学院别名归一与 hard filter
+  -> 动态字段权重
+  -> 论文成果类 paper-only RRF
+  -> BGE 条件触发语义补充召回（离线评测模式）
+```
 
-当前还未作为主线结论采用的高级项：
+当前主线线上/前端可演示模式是：
 
-- embedding 语义召回已接入并用 `BAAI/bge-small-zh-v1.5` 跑通，但当前指标低于 optimized BM25 hybrid，建议作为探索实验，不作为主创新点。
-- reranker / LLM 重排序。
-- 全查询类型的多路召回 RRF。当前 RRF 只用于论文成果类 query。
-- baseline/optimized 同屏对比 UI。当前前端是切换式展示，不是并排对比。
+```text
+基础 BM25 / 优化检索 optimized
+```
 
-## 2. 当前代码入口
+当前已实现并验证、但尚未接入前端默认搜索的增强模式是：
 
-### 2.1 IR 主包
+```text
+conditional_semantic
+```
 
-| 文件 | 作用 | 当前状态 |
+它用于离线评测和报告创新点说明：当 query 是长自然语言描述、口语化软描述或明显语义改写时，额外触发 BGE 向量召回，并与 optimized 结果做加权 RRF 融合。
+
+## 2. 当前数据与评测集
+
+### 2.1 检索数据
+
+推荐检索输入文件：
+
+```text
+data/processed/handoff/handoff_teachers.clean.jsonl
+```
+
+当前本地数据规模：
+
+```text
+教师文档：283
+学院：5 个
+数据来源：5 个学院教师主页 HTML 解析与清洗结果
+```
+
+注意：
+
+1. `data/raw/` 和 `data/processed/` 是数据产物，通常不提交 GitHub。
+2. 组员需要通过本地生成或压缩包交接获得 `handoff_teachers.clean.jsonl`。
+3. 当前清洗口径是保留并规范化官网公开联系方式，不再默认脱敏。测试 `tests/test_parser.py` 已按这个口径更新。
+
+### 2.2 正式主评测集
+
+```text
+data/eval/queries.jsonl
+data/eval/qrels.jsonl
+```
+
+规模：
+
+```text
+queries：48
+qrels：人工/半人工相关性标注
+相关阈值：relevance >= 2
+Top-K：5
+```
+
+query 类型覆盖：
+
+| 类别 | 目的 |
+|---|---|
+| `exact_name` | 姓名精确查询 |
+| `fuzzy_name` | 姓名错别字/近似查询 |
+| `research_direction` | 单研究方向查询 |
+| `paper_achievement` | 论文/成果类查询 |
+| `college_research` | 学院 + 研究方向硬约束 |
+| `title_research` | 学院/职称/方向复合查询 |
+| `soft_preference` | 青年老师、成果较多等软偏好 |
+| `colloquial_compound` | 口语化复合查询 |
+
+### 2.3 语义泛化补充评测集
+
+```text
+data/eval/semantic_generalization_queries.jsonl
+data/eval/semantic_generalization_qrels.jsonl
+```
+
+规模：
+
+```text
+queries：10
+qrels：65
+```
+
+设计目的：
+
+1. 专门测试“用户不直接输入关键词，而是换一种自然语言说法”的场景。
+2. qrels 沿用正式测试集中相近主题 query 的相关教师，避免临时按结果倒推标注。
+3. 该子集只用于补充分析语义泛化能力，不替代 48 条正式主评测集。
+
+典型 query：
+
+| query_id | 查询 | 对应主题 |
 |---|---|---|
-| `suda_ir/ir/index.py` | V0 baseline BM25，使用重复 token 实现粗字段权重 | 已实现 |
-| `suda_ir/ir/fielded_index.py` | 字段级 BM25，支持动态权重、扩展词权重、候选过滤 | 已更新 |
-| `suda_ir/ir/fuzzy.py` | rapidfuzz/SequenceMatcher 模糊姓名匹配 | 已实现 |
-| `suda_ir/ir/query_expansion.py` | 领域词典扩展，如 NLP、机器翻译、知识图谱 | 已实现 |
-| `suda_ir/ir/query_intent.py` | 查询意图识别、学院别名、动态权重策略 | 本轮新增 |
-| `suda_ir/ir/semantic_index.py` | 可选语义向量召回，支持 sentence-transformers 与 hashing 冒烟后端 | 本轮新增 |
-| `suda_ir/ir/searcher.py` | baseline/optimized 统一入口，含学院过滤与 paper RRF | 已更新 |
+| S001 | 研究人类语言理解和文本分析的老师 | 自然语言处理 |
+| S002 | 做跨语言文本分析与翻译技术的导师 | 机器翻译 |
+| S005 | 研究非线性系统长期行为的导师 | 动力系统 |
+| S008 | 研究文本情感理解和观点分析的老师 | 情感分析 |
+| S009 | 纳米学院研究二维材料界面调控的老师 | 二维材料/表界面 |
 
-### 2.2 后端副本
+## 3. 当前代码入口
 
-后端目前仍维护一份 `backend/suda_ir/` 副本，`backend/engine/bm25.py` 和 `backend/engine/optimized.py` 调用的是这份代码。因此主包改动必须同步到：
+### 3.1 主 IR 包
+
+| 文件 | 作用 |
+|---|---|
+| `suda_ir/ir/index.py` | baseline BM25，使用合并字段文本建索引 |
+| `suda_ir/ir/fielded_index.py` | 字段级 BM25，支持动态字段权重、扩展词权重、候选文档过滤 |
+| `suda_ir/ir/fuzzy.py` | fuzzy 姓名匹配，优先 rapidfuzz，缺依赖时退回 SequenceMatcher |
+| `suda_ir/ir/query_expansion.py` | 领域词典扩展，如 NLP、机器翻译、知识图谱、计算机视觉 |
+| `suda_ir/ir/query_intent.py` | 查询意图识别、学院别名归一、职称词/论文词识别、动态权重策略 |
+| `suda_ir/ir/searcher.py` | CLI/主包搜索入口，支持 baseline 与 optimized |
+| `suda_ir/ir/semantic_index.py` | BGE/句向量召回，支持 sentence-transformers 和 hashing 冒烟后端 |
+| `suda_ir/ir/semantic_gate.py` | 条件触发语义召回 gate，决定是否启用 BGE 补充召回 |
+
+### 3.2 后端副本
+
+后端目前仍有一份重复实现：
+
+```text
+backend/suda_ir/
+```
+
+后端 `bm25/optimized` engine 调用的是这份副本：
+
+```text
+backend/engine/bm25.py
+backend/engine/optimized.py
+```
+
+当前已同步的后端副本文件：
 
 ```text
 backend/suda_ir/fielded_index.py
@@ -48,9 +155,14 @@ backend/suda_ir/query_intent.py
 backend/suda_ir/searcher.py
 ```
 
-本轮已同步。后续若继续优化 IR，建议优先考虑消除这份重复代码，让 backend 直接复用根目录 `suda_ir/`，否则容易出现 CLI 指标和前端结果不一致。
+重要边界：
 
-### 2.3 前端入口
+1. 后端 API 当前注册的是 `bm25`、`optimized`、`stub`。
+2. `conditional_semantic` 当前只在 `scripts/evaluate_search.py` 离线评测中实现。
+3. 前端当前不能直接选择 `conditional_semantic`，只支持 `基础 BM25 / 优化检索`。
+4. 如果后续要把 BGE 接到网页，需要新增后端 engine 或让 optimized 内部按 gate 条件调用 `SemanticIndex`；但这会引入模型加载耗时和部署依赖，需要谨慎。
+
+### 3.3 前端入口
 
 相关文件：
 
@@ -61,58 +173,230 @@ frontend/src/components/SearchBarPanel.vue
 frontend/src/components/SearchStackPanel.vue
 ```
 
-当前行为：
+当前前端能力：
 
-- `searchTeachers(params, engine)` 会请求 `/api/search?engine=${engine}`。
-- Pinia store 增加 `engine: "bm25"`。
-- 搜索栏新增 `基础 BM25 / 优化检索` 单选。
-- 每条搜索 session 会保存 `engine`，搜索栈中显示 `BM25` 或 `优化检索`。
+1. 搜索栏支持字段选择：全部、姓名、学院、研究方向。
+2. 搜索栏支持引擎切换：`基础 BM25` / `优化检索`。
+3. 请求路径为 `/api/search?engine=...`。
+4. 搜索栈会记录每次查询使用的 engine，便于演示对比。
 
-## 3. optimized 检索流程
+## 4. 各模式含义
 
-当前 optimized 查询流程如下：
+### 4.1 baseline
+
+基础 BM25。
+
+特点：
+
+1. 使用合并后的教师文本建索引。
+2. 支持基础姓名精确/包含匹配。
+3. 不理解学院别名、查询意图、字段差异和论文类特殊需求。
+
+### 4.2 fielded
+
+字段级 BM25。
+
+特点：
+
+1. 对 `name/research/papers/title/profile/college/content` 分字段计算 BM25。
+2. 使用固定字段权重。
+3. 不启用 fuzzy，不启用 query expansion。
+
+单独使用时效果不一定好，因为教师主页字段缺失、栏目质量不一，固定字段权重容易放大噪声。
+
+### 4.3 fielded+fuzzy
+
+字段级 BM25 + fuzzy 姓名匹配。
+
+主要解决：
 
 ```text
-用户 query
-  -> analyze_query(query)
-  -> 解析学院别名、职称词、论文成果词、口语化 filler
-  -> 得到 cleaned_query / kind / college / field_weights / expansion_weight
-  -> 如识别 college，先做 hard filter
-  -> FieldedBM25Index 按动态权重排序
-  -> 短 query 启用 fuzzy name bonus
-  -> paper intent 额外与 baseline BM25 做 RRF
-  -> 返回 Top-K
+周国东 -> 周国栋
+李守山 -> 李寿山
+李军会 -> 李军辉
 ```
 
-已支持的学院别名包括：
+这是当前最明确的单点正收益模块之一。
 
-| 用户 query 可能写法 | 归一学院 |
-|---|---|
-| 计科院、计算机学院、软件学院 | 计算机科学与技术学院 |
-| 数学学院 | 数学科学学院 |
-| 物理学院 | 物理科学与技术学院 |
-| 纳米学院、纳米研究院 | 功能纳米与软物质研究院 |
-| 未来学院 | 未来科学与工程学院 |
+### 4.4 fielded+expand
 
-## 4. 评测命令
+字段级 BM25 + 领域词典查询扩展。
 
-单元测试：
+典型扩展：
+
+```text
+NLP -> 自然语言处理 / 中文信息处理 / 机器翻译 / 信息抽取
+知识图谱 -> 知识表示 / 图数据 / 智能问答 / 语义网络
+计算机视觉 -> 图像处理 / 医学图像 / 深度学习
+```
+
+注意：查询扩展单独使用不保证全局提升，报告中应写成“对口语化/同义表达场景定向有效”。
+
+### 4.5 adaptive
+
+当前 optimized 的主体，但不含 paper RRF。
+
+流程：
+
+```text
+query
+  -> analyze_query
+  -> 学院别名归一
+  -> 职称词、论文词、口语 filler 识别
+  -> cleaned_query
+  -> intent.kind
+  -> 动态 field_weights / expansion_weight
+  -> 学院 hard filter
+  -> FieldedBM25Index.search
+```
+
+核心价值：
+
+1. 把“计算机学院/计科院/软件学院”等别名统一为标准学院。
+2. 把学院从普通检索词变成 hard filter。
+3. 对不同 query 类型使用不同字段权重。
+4. 对研究方向、论文成果、学院+方向、职称+方向分别建模。
+
+### 4.6 optimized
+
+当前主线最优模式。
+
+```text
+optimized = adaptive + paper-only RRF
+```
+
+paper-only RRF 只在 `intent.kind == "paper"` 时触发：
+
+```text
+optimized fielded BM25 Top-N
++ baseline BM25 Top-N
+-> RRF merge
+```
+
+它不是全查询多路融合，而是针对论文/成果类 query 的局部策略。报告中不能夸大为“完整多路召回系统”。
+
+### 4.7 semantic
+
+纯 BGE/向量召回。
+
+实现位置：
+
+```text
+suda_ir/ir/semantic_index.py
+scripts/evaluate_search.py::_semantic
+```
+
+文档构造：
+
+```text
+姓名 + 学院 + 职称 + 研究方向 + 论文成果 + 个人简介
+```
+
+每个字段会截断，减少超长主页内容噪声。
+
+当前结论：纯 semantic 低于 optimized，不适合作为主排序器。
+
+### 4.8 hybrid_semantic
+
+无条件语义融合：
+
+```text
+optimized Top-50
++ semantic Top-50
+-> weighted RRF
+```
+
+默认语义权重：
+
+```text
+semantic_weight = 0.05
+```
+
+当前结论：在语义泛化子集上有收益，但在正式主评测集上略低于 optimized，因此不适合作为默认全局策略。
+
+### 4.9 conditional_semantic
+
+当前 BGE 最新设计，也是最适合写入报告的语义增强版本。
+
+核心思想：
+
+```text
+默认使用 optimized。
+只有 query 满足语义改写/自然语言描述特征时，才触发 BGE 补充召回。
+```
+
+流程：
+
+```text
+query
+  -> optimized Top-50
+  -> analyze_query
+  -> semantic_gate.should_use_semantic
+      -> False: 直接返回 optimized Top-K
+      -> True: 计算 semantic Top-50，并与 optimized 做 weighted RRF
+```
+
+不触发场景：
+
+1. 姓名查询。
+2. 论文/成果查询。
+3. 字段过滤查询。
+4. 短关键词查询。
+5. 已经直接命中领域词典关键词的研究方向查询。
+
+触发场景：
+
+1. 长自然语言 query。
+2. 口语化软描述。
+3. 同义改写明显但没有直接关键词命中的 query。
+4. optimized 结果为空时的兜底场景。
+
+当前触发范围：
+
+```text
+正式 48 query：6 条
+Q038,Q042,Q043,Q046,Q047,Q048
+
+语义泛化 10 query：8 条
+S001,S002,S005,S006,S007,S008,S009,S010
+```
+
+重要边界：
+
+1. `conditional_semantic` 已实现并通过离线评测验证。
+2. 它尚未接入后端 API 和前端 engine。
+3. 报告中可写为“已实现并验证的补充创新点”，但不要写成“线上默认搜索已使用 BGE”。
+
+## 5. 评测命令
+
+### 5.1 单元测试
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-sample 兼容性评测：
+最新结果：
+
+```text
+Ran 26 tests OK
+```
+
+### 5.2 正式主评测
 
 ```bash
 python scripts/evaluate_search.py \
-  --data data/sample/teachers.jsonl \
-  --queries data/sample/eval_queries.jsonl \
+  --data data/processed/handoff/handoff_teachers.clean.jsonl \
+  --queries data/eval/queries.jsonl \
+  --qrels data/eval/qrels.jsonl \
   --top-k 5 \
+  --modes baseline,fielded,fielded+fuzzy,fielded+expand,adaptive,optimized,conditional_semantic \
+  --semantic-model BAAI/bge-small-zh-v1.5 \
+  --semantic-cache data/processed/eval/bge-small-zh-v1.5.npz \
+  --semantic-local-files-only \
   --no-breakdown
 ```
 
-正式消融评测：
+如果只需要基础消融：
 
 ```bash
 python scripts/evaluate_search.py \
@@ -123,339 +407,15 @@ python scripts/evaluate_search.py \
   --ablation
 ```
 
-如需保存指标 JSON：
+### 5.3 语义泛化补充评测
 
-```bash
-python scripts/evaluate_search.py \
-  --data data/processed/handoff/handoff_teachers.clean.jsonl \
-  --queries data/eval/queries.jsonl \
-  --qrels data/eval/qrels.jsonl \
-  --top-k 5 \
-  --ablation \
-  --output data/processed/eval/ir_metrics.json
-```
-
-注意：`data/processed/` 通常被 git ignore，指标 JSON 如需进仓库，应另存到 `docs/` 或复制表格到文档。
-
-V3 轻量语义向量召回评测：
-
-```bash
-python scripts/evaluate_search.py \
-  --data data/processed/handoff/handoff_teachers.clean.jsonl \
-  --queries data/eval/queries.jsonl \
-  --qrels data/eval/qrels.jsonl \
-  --top-k 5 \
-  --modes baseline,optimized,semantic,hybrid_semantic \
-  --semantic-model BAAI/bge-small-zh-v1.5 \
-  --semantic-cache data/processed/eval/bge-small-zh-v1.5.npz \
-  --semantic-local-files-only
-```
-
-首次运行前需要安装可选依赖：
+首次使用 BGE 前安装可选依赖：
 
 ```bash
 python -m pip install -r requirements-semantic.txt
 ```
 
-当前已能用本地缓存离线加载 `BAAI/bge-small-zh-v1.5`。如果首次运行尚未缓存模型，需要先联网下载；下载成功后建议使用 `--semantic-local-files-only` 复现实验，避免每次请求 HuggingFace。
-
-仅用于冒烟测试的 fallback 命令：
-
-```bash
-python scripts/evaluate_search.py \
-  --data data/processed/handoff/handoff_teachers.clean.jsonl \
-  --queries data/eval/queries.jsonl \
-  --qrels data/eval/qrels.jsonl \
-  --top-k 5 \
-  --modes baseline,optimized,semantic,hybrid_semantic \
-  --semantic-backend hashing \
-  --semantic-cache data/processed/eval/handoff_hashing_semantic.npz \
-  --no-breakdown
-```
-
-注意：`hashing` 后端不是深度学习模型，只是无依赖环境下检查代码路径的词面向量 fallback，不能作为“轻量深度学习语义召回”的实验结果。
-
-## 5. 本轮验证结果
-
-测试环境：
-
-```text
-数据：data/processed/handoff/handoff_teachers.clean.jsonl
-docs：283
-queries：48
-qrels：data/eval/qrels.jsonl
-相关阈值：relevance >= 2
-Top-K：5
-```
-
-已运行：
-
-```text
-python -m unittest discover -s tests
-结果：19 tests OK
-```
-
-sample 评测：
-
-| 模式 | P@5 | MRR | NDCG@5 |
-|---|---:|---:|---:|
-| baseline | 0.1500 | 0.7500 | 0.7500 |
-| optimized | 0.2000 | 1.0000 | 1.0000 |
-
-正式 48 query 消融：
-
-| 版本 | P@5 | MRR | NDCG@5 | 平均耗时 |
-|---|---:|---:|---:|---:|
-| baseline | 0.4583 | 0.7899 | 0.6300 | 4.74 ms |
-| fielded | 0.4417 | 0.7378 | 0.5992 | 16.31 ms |
-| fielded+fuzzy | 0.4625 | 0.8420 | 0.7034 | 21.71 ms |
-| fielded+expand | 0.4458 | 0.7795 | 0.6128 | 12.96 ms |
-| adaptive | 0.5500 | 0.9219 | 0.8052 | 7.31 ms |
-| optimized | 0.5708 | 0.9219 | 0.8186 | 7.57 ms |
-
-版本含义：
-
-| 版本 | 含义 |
-|---|---|
-| `baseline` | 原始 BM25 + 姓名精确/包含匹配 |
-| `fielded` | 字段级 BM25，不启用 fuzzy，不启用 expansion |
-| `fielded+fuzzy` | 字段级 BM25 + fuzzy 姓名召回 |
-| `fielded+expand` | 字段级 BM25 + 领域词典查询扩展 |
-| `adaptive` | fuzzy + expansion + 查询意图识别 + 动态字段权重 + 学院 hard filter，不启用 paper RRF |
-| `optimized` | `adaptive` + 论文成果类 paper-only RRF |
-
-optimized 相比 baseline：
-
-```text
-P@5:    0.4583 -> 0.5708
-MRR:    0.7899 -> 0.9219
-NDCG@5: 0.6300 -> 0.8186
-```
-
-这说明当前优化不是只“堆功能”，而是在正式测试集上确实提高了相关教师进入 Top-5 和排在前列的能力。
-
-adaptive 与 optimized 的差异也能解释 paper RRF 的贡献：
-
-```text
-adaptive:  P@5=0.5500, NDCG@5=0.8052
-optimized: P@5=0.5708, NDCG@5=0.8186
-```
-
-其中 `paper_achievement` 类别从 adaptive 的 `P@5=0.5667, NDCG@5=0.7899` 提升到 optimized 的 `P@5=0.7333, NDCG@5=0.8967`，说明 paper-only RRF 不是装饰性模块，而是在论文/成果类 query 上补回了字段级 BM25 的短板。
-
-## 6. 创新点可写入性审查
-
-严格按 IR 算法模块计，当前有 5 个可讨论的优化/创新点；如果把工程验证也算上，则另有 2 个支撑性创新点。
-
-### 6.1 算法创新点
-
-| 模块 | 是否建议作为创新点写入报告 | 消融证据 | 报告口径 |
-|---|---|---|---|
-| 字段级 BM25 | 可以写，但不能写成“单独提升” | `fielded` 整体低于 baseline：P@5 0.4417 < 0.4583 | 写成“可解释字段建模基础”，说明单独使用受字段缺失和权重影响，需要与后续模块结合 |
-| fuzzy 姓名匹配 | 可以强写 | `fuzzy_name` 从 baseline 的 MRR/NDCG=0 提升到 0.8333；整体 `fielded+fuzzy` 也优于 `fielded` | 写成对姓名错别字、近似输入的鲁棒性优化 |
-| 领域词典查询扩展 | 可以写，但要写成“定向有效” | `fielded+expand` 整体不如 baseline，但 `colloquial_compound`、`title_research`、`soft_preference` 有提升 | 写成对 NLP/知识图谱/机器翻译等领域词和口语化 query 的增强；不要声称单独全局提升 |
-| 查询意图识别 + 动态字段权重 + 学院 hard filter | 可以作为核心创新点强写 | `adaptive` 相比 baseline：P@5 0.4583 -> 0.5500，NDCG@5 0.6300 -> 0.8052；`college_research` NDCG 0.6698 -> 0.8019 | 写成自适应混合检索核心：按 query 类型调整字段权重，并把学院约束从普通词转为 hard filter |
-| paper-only RRF 融合 | 可以写，但限定为论文成果类 | `paper_achievement` 从 adaptive P@5 0.5667 -> optimized 0.7333，NDCG 0.7899 -> 0.8967 | 写成“针对论文/成果 query 的局部融合策略”，不要写成全查询多路融合 |
-
-### 6.2 工程与评测支撑点
-
-| 模块 | 是否建议写入报告 | 说明 |
-|---|---|---|
-| 正式 qrels 评测与消融脚本 | 建议写入实验设计 | 支持 `queries.jsonl + qrels.jsonl`、P@5、MRR、NDCG@5、per-category 指标，使优化可量化 |
-| 前端 BM25/优化检索切换 | 建议写入系统实现 | 方便演示 baseline 与 optimized；但它是工程展示点，不是 IR 排序算法创新 |
-
-### 6.3 不能夸大的部分
-
-以下内容不能写成“已完整实现”：
-
-1. 完整多路召回 RRF：当前 RRF 只用于 `paper` intent，不是所有 query 都融合。
-2. embedding 语义召回：实验版代码和真实 BGE 指标已跑通，但当前效果低于 optimized，不能写成“提升型主创新点”。
-3. reranker/LLM 重排序：尚未实现。 
-4. 字段级 BM25 单独提升：消融不支持这个说法。
-5. 查询扩展单独全局提升：消融不支持，只能写定向有效。
-
-### 6.4 V3 语义向量模块状态
-
-当前已新增 `SemanticIndex` 和评测模式：
-
-```text
-semantic：纯语义向量召回
-hybrid_semantic：optimized Top-50 + semantic Top-50 的 RRF 融合
-```
-
-真实 BGE 语义向量召回已经跑通，正式集结果如下：
-
-| 版本 | P@5 | MRR | NDCG@5 | 说明 |
-|---|---:|---:|---:|---|
-| optimized | 0.5708 | 0.9219 | 0.8186 | 当前主线最优 |
-| semantic-BGE | 0.3250 | 0.7438 | 0.5691 | 纯语义召回，低于 BM25 hybrid |
-| hybrid_semantic-BGE, weight=0.05 | 0.5542 | 0.9219 | 0.8113 | 接近 optimized，但仍略低 |
-| hybrid_semantic-BGE, weight=0.6 | 0.4583 | 0.8958 | 0.7142 | 语义权重过高会明显引入噪声 |
-
-因此：V3 代码可以保留，也可以在报告中作为“探索性深度学习语义增强实验”简要说明；但不建议作为第 6 个主创新点，因为它没有超过当前 optimized。这个结果本身也有解释价值：教师主页数据规模较小、字段结构较强，BM25 + 意图规则已经很贴合任务，而通用 BGE 语义向量容易把主题相近但非 qrels 标注目标的教师引入 Top-5。
-
-推荐报告总口径：
-
-```text
-本文实现了一个面向导师信息检索的自适应混合检索框架。系统以 BM25 为 baseline，
-引入字段级建模、模糊姓名匹配、领域词典查询扩展、查询意图识别、学院 hard filter、
-动态字段权重和论文成果类 RRF 融合。消融实验表明，单独字段级建模和无约束查询扩展
-并不总是带来全局提升，但在意图识别和动态权重控制后，最终 optimized 模式在正式评测集上
-取得 P@5、MRR、NDCG@5 的整体提升。
-```
-
-## 7. 分类别表现
-
-| 类别 | baseline P@5 | optimized P@5 | baseline NDCG@5 | optimized NDCG@5 | 说明 |
-|---|---:|---:|---:|---:|---|
-| exact_name | 0.2000 | 0.2000 | 1.0000 | 1.0000 | 单一相关文档，P@5 天然只有 0.2；MRR=1 正常 |
-| fuzzy_name | 0.0000 | 0.1667 | 0.0000 | 0.8333 | fuzzy 是明确正收益 |
-| research_direction | 0.8333 | 0.8667 | 0.8325 | 0.8394 | 动态 research 权重后超过 baseline |
-| paper_achievement | 0.7000 | 0.7333 | 0.9265 | 0.8967 | paper RRF 提升 P@5；排序质量仍可继续调 |
-| college_research | 0.7000 | 0.7667 | 0.6698 | 0.8019 | 学院 hard filter 修复了原短板 |
-| title_research | 0.4000 | 0.5333 | 0.5916 | 0.6575 | 职称/方向动态权重有效，但 MRR 仍可调 |
-| soft_preference | 0.3333 | 0.5667 | 0.4527 | 0.7204 | 软偏好 query 明显收益 |
-| colloquial_compound | 0.5000 | 0.7333 | 0.5671 | 0.7994 | 口语化 filler 清洗 + 查询扩展有效 |
-
-关键解释：
-
-1. `fuzzy_name`：baseline 对错别字姓名基本无能为力，optimized 通过 fuzzy name search 能召回。
-2. `college_research`：上一版最大短板是把学院当普通词排序；现在 hard filter 后 P@5 和 NDCG 均提升。
-3. `paper_achievement`：论文类只用 fielded BM25 会被长论文列表干扰；加入 paper-only RRF 后 P@5 从 0.5667 提到 0.7333。
-4. `exact_name`：P@5=0.2 不代表差，因为每个姓名 query 通常只有一个强相关教师；看 MRR/NDCG 更合理。
-
-## 8. 和实验报告 plan 的对齐
-
-| 计划模块 | 当前状态 | 说明 |
-|---|---|---|
-| V0 Baseline BM25 | 已实现 | `BM25Index` |
-| V1 Field-aware BM25 | 已实现 | `FieldedBM25Index` |
-| fuzzy 姓名匹配 | 已实现 | `fuzzy_name_search` |
-| 查询扩展 | 已实现 | `DOMAIN_SYNONYMS` |
-| 查询意图识别 | 已初步实现 | 学院、论文、职称、口语化、研究方向 |
-| 学院 hard filter | 已实现 | 从 query 自动解析学院别名 |
-| 动态字段权重 | 已实现 | 按 intent 调整 `field_weights` |
-| RRF 融合 | 部分实现 | 当前只用于 paper intent |
-| 前端 engine 切换 | 已实现 | BM25 / 优化检索 |
-| 正式 qrels 评测 | 已实现 | 支持 overall + per-category |
-| embedding 语义召回 | 已接入实验版 | `SemanticIndex` + `semantic/hybrid_semantic` 评测模式；真实模型依赖未安装，尚未验证指标 |
-| reranker / LLM rerank | 未实现 | 后续 V3 |
-
-报告表述建议：
-
-```text
-本系统实现了以 BM25 为基础的自适应混合检索雏形：在字段级 BM25 的基础上，
-结合查询意图识别、学院别名归一化、学院硬过滤、动态字段权重、领域词典查询扩展、
-模糊姓名匹配和论文类 RRF 融合。实验表明，optimized 模式在正式 48 条 query 评测集上
-较 baseline 的 P@5、MRR、NDCG@5 均有提升。
-```
-
-不要写成：
-
-```text
-已完成并验证 embedding 语义检索、LLM 重排序、完整多路召回系统。
-```
-
-这些还没有落地。
-
-## 9. 当前还需优化的点
-
-### P0：补充更细的 per-query 误差分析
-
-现在评测脚本已能输出 per-category，但还没有保存每条 query 的 Top-K 结果和命中情况。建议下一步给 `evaluate_search.py` 增加：
-
-```text
---details-output docs/ir_eval_details.json
-```
-
-用于报告中挑案例截图和解释错误来源。
-
-### P1：继续调 paper 排序质量
-
-当前 `paper_achievement` 的 P@5 高于 baseline，但 NDCG@5 仍略低于 baseline：
-
-```text
-baseline NDCG@5=0.9265
-optimized NDCG@5=0.8967
-```
-
-说明相关教师能进 Top-5，但强相关教师的排序还可以再调。方向：
-
-1. 对 `ACL/CCF/Nature/SCI` 等强论文词给 phrase bonus。
-2. 对 query 中研究主题词和论文场景词拆开加权。
-3. paper RRF 中调整 optimized/baseline 权重，而不是等权 RRF。
-
-### P2：优化 title_research 的 MRR
-
-`title_research` P@5/NDCG 有提升，但 MRR 从 baseline 0.8889 变成 optimized 0.7500。说明前五里相关更多，但第一位命中不够稳定。方向：
-
-1. 对职称词如 `教授/副教授/讲师/博导` 做更明确的 title filter 或 title boost。
-2. 对“年轻教师”等软条件建立规则特征。
-
-### P3：前端增加对比模式
-
-当前前端只有 engine 切换。报告展示会更需要：
-
-```text
-同一 query 左侧 BM25，右侧 optimized
-展示 Top-5、score、matched_terms
-```
-
-这能直接用于报告截图。
-
-### P4：统一主包和后端副本
-
-当前 `suda_ir/ir/` 和 `backend/suda_ir/` 有重复实现。短期已经同步，但长期容易分叉。建议：
-
-1. backend 直接 import 根目录 `suda_ir`。
-2. 删除或弃用 `backend/suda_ir` 副本。
-3. 用测试确认 CLI 和 API 返回一致。
-
-### P5：可选语义增强
-
-V3 语义增强已经有实验版代码和真实 BGE 指标，并新增 `conditional_semantic` 条件触发模式。目前仍不建议替代主线 `optimized`，但可以作为语义泛化场景的补充召回模块：
-
-1. 只在 `soft_preference` 或自然语言长 query 上触发语义融合，而不是所有 query 都融合。
-2. 尝试更适合短文本检索的模型或中文 reranker。
-3. 尝试对教师文档摘要做更短、更干净的 embedding 文本，减少论文列表和简介噪声。
-4. 若后续 `conditional_semantic` 在更多真实 query 上稳定超过 optimized，再升级为默认线上排序策略。
-
-当前更稳的主线仍是已经验证过的 BM25 hybrid；V3 建议作为“条件触发的补充增强”和语义泛化实验写入报告。
-
-## 10. 文档口径提醒
-
-1. 正式评测统一使用 `data/eval/queries.jsonl + data/eval/qrels.jsonl`。
-2. 根目录 `eval/` 与 `data/eval/` 内容重复，后续文档只引用 `data/eval/`。
-3. `docs/experiments.md` 里如果还引用不存在的旧文件，需要后续同步更新。
-4. `data/processed/` 和 `data/raw/` 是数据产物，通常不直接提交 GitHub。
-5. 当前数据清洗策略是保留并规范化官网公开联系方式，不再默认脱敏；报告和测试应保持一致。
-
-## 11. 语义泛化补充测试集
-
-为验证 V3 “轻量语义向量召回 + RRF 融合”是否确实适合语义改写类查询，新增一个小型补充测试集：
-
-```text
-data/eval/semantic_generalization_queries.jsonl
-data/eval/semantic_generalization_qrels.jsonl
-```
-
-设计原则：
-
-1. 共 10 条 query，全部是自然语言语义改写，不直接照抄原始关键词。
-2. 标注沿用正式 qrels 中相近主题 query 的相关教师，保证不是临时按结果倒推标注。
-3. 该子集只用于补充分析“语义泛化能力”，不替代正式 48 条 `queries.jsonl + qrels.jsonl` 主评测。
-
-典型 query 示例：
-
-| query_id | 查询 | 对应正式 query |
-|---|---|---|
-| S001 | 研究人类语言理解和文本分析的老师 | Q013 自然语言处理 |
-| S002 | 做跨语言文本分析与翻译技术的导师 | Q014 机器翻译 |
-| S005 | 研究非线性系统长期行为的导师 | Q017 动力系统 |
-| S008 | 研究文本情感理解和观点分析的老师 | Q020 情感分析 |
-| S009 | 纳米学院研究二维材料界面调控的老师 | Q047 二维材料/表界面 |
-
-运行命令：
+运行评测：
 
 ```bash
 python scripts/evaluate_search.py \
@@ -466,55 +426,459 @@ python scripts/evaluate_search.py \
   --modes baseline,optimized,conditional_semantic,semantic,hybrid_semantic \
   --semantic-model BAAI/bge-small-zh-v1.5 \
   --semantic-cache data/processed/eval/bge-small-zh-v1.5.npz \
-  --semantic-local-files-only
+  --semantic-local-files-only \
+  --no-breakdown
 ```
 
-当前结果：
+说明：
 
-| 模式 | P@5 | MRR | NDCG@5 | 平均耗时 |
-|---|---:|---:|---:|---:|
-| baseline | 0.4600 | 0.7500 | 0.4926 | 6.42 ms |
-| optimized | 0.4600 | 0.8833 | 0.5437 | 13.06 ms |
-| semantic-BGE | 0.3400 | 0.7250 | 0.4543 | 1248.95 ms |
-| hybrid_semantic-BGE | 0.5000 | 0.9000 | 0.5667 | 26.43 ms |
-| conditional_semantic-BGE | 0.5000 | 0.9000 | 0.5699 | 1501.03 ms |
+1. 如果本机没有缓存 `BAAI/bge-small-zh-v1.5`，首次运行不能加 `--semantic-local-files-only`，需要联网下载模型。
+2. 模型下载后建议加 `--semantic-local-files-only` 复现实验。
+3. `avg_ms` 会受到模型首次加载、缓存和运行顺序影响，报告中主要比较 P@5、MRR、NDCG@5。
 
-耗时会受 BGE 模型首次加载和缓存状态影响，报告中建议主要比较 P@5、MRR、NDCG@5。
+## 6. 最新评测结果
 
-结论：
+### 6.1 正式 48 query 主测试集
 
-1. 在正式 48 query 主测试集上，`hybrid_semantic` 仍略低于 `optimized`，因此不能作为主线最终排序器。
-2. 在这个语义泛化补充子集上，`conditional_semantic` 相比 `optimized` 有小幅提升：P@5 从 0.4600 到 0.5000，MRR 从 0.8833 到 0.9000，NDCG@5 从 0.5437 到 0.5699。
-3. 纯 `semantic-BGE` 仍然不稳定，说明教师主页这种小规模、强字段结构数据并不适合完全依赖通用向量召回。
-4. 更合理的报告口径是：V3 可以作为“面向自然语言语义改写查询的条件触发补充召回模块”，在语义泛化场景有验证收益；但主系统仍采用 `optimized`，避免在所有查询上引入语义噪声。
+本次复跑时间：2026-06-12
 
-当前已实现的条件触发策略：
-
-1. 新增 `suda_ir/ir/semantic_gate.py`，负责判断是否启用 BGE 语义召回。
-2. `scripts/evaluate_search.py` 新增 `conditional_semantic` 模式。
-3. 不触发场景：姓名查询、论文/成果查询、字段过滤查询、短关键词查询、已经含有明确领域词典关键词的研究方向查询。
-4. 触发场景：长自然语言 query、口语化软描述、同义改写明显且不直接命中领域词典的查询。
-5. 触发后使用 `optimized Top-50 + semantic Top-50` 做加权 RRF 融合，默认语义权重为 `0.05`。
-
-正式 48 query 主测试集复测：
+```text
+data=data/processed/handoff/handoff_teachers.clean.jsonl
+docs=283
+cases=48
+top_k=5
+rel_threshold=2
+```
 
 | 模式 | P@5 | MRR | NDCG@5 |
 |---|---:|---:|---:|
 | baseline | 0.4583 | 0.7899 | 0.6300 |
+| fielded | 0.4417 | 0.7378 | 0.5992 |
+| fielded+fuzzy | 0.4625 | 0.8420 | 0.7034 |
+| fielded+expand | 0.4458 | 0.7795 | 0.6128 |
+| adaptive | 0.5500 | 0.9219 | 0.8052 |
 | optimized | 0.5708 | 0.9219 | 0.8186 |
 | conditional_semantic | 0.5708 | 0.9219 | 0.8186 |
 
-这说明条件触发没有破坏正式主测试集表现；在语义泛化补充集上则带来提升。因此报告里可以把 V3 写成“已实现并验证的补充创新点”，但要强调它是条件触发模块，不是替代 optimized 的默认主排序器。
+关键结论：
 
-当前 gate 触发范围：
+1. `optimized` 相比 `baseline` 明显提升：
 
 ```text
-正式 48 query：触发 6 条（Q038,Q042,Q043,Q046,Q047,Q048）
-语义泛化 10 query：触发 8 条（S001,S002,S005,S006,S007,S008,S009,S010）
+P@5:    0.4583 -> 0.5708
+MRR:    0.7899 -> 0.9219
+NDCG@5: 0.6300 -> 0.8186
 ```
 
-后续如果继续优化 V3，优先方向：
+2. `fielded` 单独低于 baseline，说明字段建模本身不是直接收益来源，需要与 fuzzy、intent、hard filter 结合。
+3. `adaptive` 已经大幅提升，说明查询意图识别、动态字段权重、学院 hard filter 是核心贡献。
+4. `optimized` 比 `adaptive` 继续提升，说明 paper-only RRF 对论文成果类 query 有贡献。
+5. `conditional_semantic` 在正式主测试集上不破坏 optimized 表现，三项指标完全持平。
 
-1. embedding 文本不要直接使用完整教师主页全文，可改为 `name + college + title + research_interests + papers标题摘要` 的短摘要，减少页面导航、页脚和论文长列表噪声。
-2. 对 `conditional_semantic` 输出 Top-K 明细做 per-query 对比，重点观察 S002、S005、S006、S008 这类语义改写明显的查询。
-3. 如果接入前端，建议仍把 `optimized` 作为默认模式，只在后端内部满足 gate 条件时自动补充语义召回。
+### 6.2 语义泛化 10 query 补充测试集
+
+本次复跑时间：2026-06-12
+
+```text
+data=data/processed/handoff/handoff_teachers.clean.jsonl
+docs=283
+cases=10
+top_k=5
+rel_threshold=2
+```
+
+| 模式 | P@5 | MRR | NDCG@5 |
+|---|---:|---:|---:|
+| baseline | 0.4600 | 0.7500 | 0.4926 |
+| optimized | 0.4600 | 0.8833 | 0.5437 |
+| conditional_semantic | 0.5000 | 0.9000 | 0.5699 |
+| semantic | 0.3400 | 0.7250 | 0.4543 |
+| hybrid_semantic | 0.5000 | 0.9000 | 0.5667 |
+
+关键结论：
+
+1. 纯 `semantic` 明显低于 optimized，不能作为主排序器。
+2. 无条件 `hybrid_semantic` 在语义泛化子集上有效，但在正式主评测集上不如 optimized 稳。
+3. `conditional_semantic` 在语义泛化子集上超过 optimized：
+
+```text
+P@5:    0.4600 -> 0.5000
+MRR:    0.8833 -> 0.9000
+NDCG@5: 0.5437 -> 0.5699
+```
+
+4. 因此最准确的报告口径是：BGE 不是替代主模型，而是条件触发的语义泛化补充召回。
+
+## 7. 当前可写入报告的创新点
+
+建议把当前创新点组织为 6 个，其中前 5 个是主线 IR 模型创新，第 6 个是补充语义增强创新。
+
+### 创新点 1：字段级 BM25 建模
+
+设计：
+
+```text
+把教师文档拆成 name/research/papers/title/profile/college/content 等字段，
+分别计算 BM25，再按字段权重融合。
+```
+
+报告口径：
+
+1. 它提供了可解释字段建模基础。
+2. 它单独使用并不一定提升，消融中 `fielded` 低于 baseline。
+3. 它的价值在于支持后续动态字段权重和查询意图识别。
+
+不要写成：
+
+```text
+字段级 BM25 单独显著提升检索效果。
+```
+
+### 创新点 2：fuzzy 姓名匹配
+
+设计：
+
+```text
+对姓名查询和短 query 使用 rapidfuzz/SequenceMatcher 进行近似匹配。
+```
+
+解决问题：
+
+```text
+错别字、近似字、手误输入。
+```
+
+证据：
+
+```text
+fielded -> fielded+fuzzy
+P@5:    0.4417 -> 0.4625
+MRR:    0.7378 -> 0.8420
+NDCG@5: 0.5992 -> 0.7034
+```
+
+### 创新点 3：领域词典查询扩展
+
+设计：
+
+```text
+用人工构建的领域同义词词典扩展 query，例如 NLP/自然语言处理、知识图谱/智能问答。
+```
+
+报告口径：
+
+1. 查询扩展对口语化、同义表达、复合 query 有帮助。
+2. 单独全局效果不一定提升，因此不能夸大。
+3. 它在 adaptive/optimized 中与 intent 和字段权重结合后发挥作用。
+
+### 创新点 4：查询意图识别 + 学院 hard filter + 动态字段权重
+
+这是当前最核心的主线创新点。
+
+设计：
+
+```text
+analyze_query(query)
+  -> 识别 college/title/paper/colloquial/research 等意图
+  -> 清理 filler
+  -> 学院别名归一
+  -> 输出 cleaned_query、kind、field_weights、expansion_weight
+```
+
+学院别名示例：
+
+| 用户写法 | 归一结果 |
+|---|---|
+| 计科院、计算机学院、软件学院 | 计算机科学与技术学院 |
+| 数学学院 | 数学科学学院 |
+| 物理学院 | 物理科学与技术学院 |
+| 纳米学院、纳米研究院 | 功能纳米与软物质研究院 |
+| 未来学院 | 未来科学与工程学院 |
+
+证据：
+
+```text
+baseline -> adaptive
+P@5:    0.4583 -> 0.5500
+MRR:    0.7899 -> 0.9219
+NDCG@5: 0.6300 -> 0.8052
+```
+
+报告口径：
+
+```text
+系统不是固定字段权重，而是根据 query 类型动态调整检索策略。
+```
+
+### 创新点 5：论文成果类 paper-only RRF
+
+设计：
+
+```text
+当 intent.kind == "paper" 时，
+融合 fielded optimized BM25 与 baseline BM25 的结果。
+```
+
+为什么只对 paper 触发：
+
+1. 论文字段长、噪声多。
+2. 论文标题、会议、成果词可能分散在不同字段。
+3. 全查询 RRF 会引入额外噪声，因此当前只在 paper intent 局部使用。
+
+证据：
+
+```text
+adaptive -> optimized
+P@5:    0.5500 -> 0.5708
+NDCG@5: 0.8052 -> 0.8186
+```
+
+旧分项结果显示 `paper_achievement` 类别 P@5 从 adaptive 的 0.5667 提升到 optimized 的 0.7333，可作为报告中的案例解释。
+
+### 创新点 6：BGE 条件触发语义补充召回
+
+这是最新补上的语义增强点。
+
+设计动机：
+
+1. 纯 BM25 擅长关键词匹配，但不擅长“换一种说法”的 query。
+2. 纯 BGE 语义召回又容易引入主题相近但不精确的教师。
+3. 因此采用条件触发：默认 optimized，只在语义改写明显时补充 BGE。
+
+实现：
+
+```text
+suda_ir/ir/semantic_index.py
+suda_ir/ir/semantic_gate.py
+scripts/evaluate_search.py::conditional_semantic
+```
+
+融合：
+
+```text
+optimized Top-50 + semantic Top-50
+weighted RRF, semantic_weight=0.05
+```
+
+证据：
+
+```text
+正式 48 query：
+optimized             P@5=0.5708 MRR=0.9219 NDCG@5=0.8186
+conditional_semantic  P@5=0.5708 MRR=0.9219 NDCG@5=0.8186
+
+语义泛化 10 query：
+optimized             P@5=0.4600 MRR=0.8833 NDCG@5=0.5437
+conditional_semantic  P@5=0.5000 MRR=0.9000 NDCG@5=0.5699
+```
+
+报告口径：
+
+```text
+本项目引入了轻量深度学习语义增强模块，但没有将其无条件替代 BM25。
+系统通过查询 gate 判断是否启用 BGE 补充召回，在保持正式主测试集不下降的同时，
+提升了语义泛化 query 子集表现。
+```
+
+不能写成：
+
+```text
+当前前端默认使用 BGE。
+当前 BGE 全面超过 optimized。
+纯语义向量召回优于 BM25。
+```
+
+## 8. 和老师 PPT 要求的对齐
+
+老师 PPT 要求至少体现基础 IR 系统和优化方案。当前项目可对应如下：
+
+| PPT 要求 | 当前实现 |
+|---|---|
+| 垂直检索系统 | 面向苏大 5 个学院导师信息 |
+| 图形化查询界面 | Vue + Element Plus 前端，支持搜索、字段选择、引擎切换 |
+| 多次迭代和模糊查询 | fuzzy 姓名匹配、口语化 query 处理 |
+| 机器学习/深度学习相关度计算 | BGE 语义向量召回，作为条件触发补充召回 |
+| 排序式 IR 系统 | BM25、字段 BM25、动态权重、RRF |
+| 优化效果证明 | `evaluate_search.py` + qrels + P@5/MRR/NDCG@5 |
+| 实验报告总结优化方案 | 本文档；早期讨论稿见 `docs/archive/ir_optimization_plan_process_record.md` |
+
+当前最适合的项目题目口径：
+
+```text
+面向导师信息垂直检索的自适应混合检索与条件式语义增强
+```
+
+或者更短：
+
+```text
+面向苏大导师主页的自适应混合 IR 检索系统
+```
+
+## 9. 前端与后端运行说明
+
+### 9.1 后端
+
+安装依赖：
+
+```bash
+cd backend
+python -m pip install -r requirements.txt
+```
+
+启动：
+
+```bash
+cd backend
+set SUDA_IR_DEFAULT_DATA=../data/processed/handoff/handoff_teachers.clean.jsonl
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+API 文档：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+### 9.2 前端
+
+安装依赖：
+
+```bash
+cd frontend
+pnpm install
+```
+
+启动：
+
+```bash
+cd frontend
+pnpm run dev --host 127.0.0.1
+```
+
+访问：
+
+```text
+http://127.0.0.1:5173/
+```
+
+注意：
+
+1. 前端目前只展示 `基础 BM25` 和 `优化检索`。
+2. `conditional_semantic` 是离线评测模式，不在前端下拉里。
+3. 若后端未设置 `SUDA_IR_DEFAULT_DATA`，可能读取 `backend/mock/teachers.jsonl`，数据数量和编码效果会与 clean 数据不同。
+
+## 10. 仍需优化或注意的点
+
+### P0：统一主包和后端副本
+
+当前 `suda_ir/ir/` 和 `backend/suda_ir/` 有重复代码。短期已同步，但长期容易分叉。
+
+建议后续：
+
+1. backend 直接 import 根目录 `suda_ir`。
+2. 删除或弃用 `backend/suda_ir` 副本。
+3. 增加 CLI 与 API 一致性测试。
+
+### P1：把 conditional_semantic 接入后端可选 engine
+
+当前 BGE 增强只在 `scripts/evaluate_search.py` 中实现。
+
+如果要做成前端演示，需要新增：
+
+```text
+backend/engine/conditional_semantic.py
+```
+
+但要注意：
+
+1. BGE 模型加载较慢。
+2. 首次运行需要下载模型。
+3. Web 服务中应缓存 SemanticIndex，否则每次查询会很慢。
+4. 可能需要单独开关，不建议直接替代 optimized。
+
+### P2：输出 per-query 明细
+
+当前评测脚本输出 overall 和 by-category，但没有保存每条 query 的 Top-K 明细。
+
+建议新增：
+
+```text
+--details-output docs/ir_eval_details.json
+```
+
+用途：
+
+1. 报告中挑选案例。
+2. 分析哪些 query 被 BGE 改善。
+3. 分析哪些 query 被语义噪声影响。
+
+### P3：继续调 paper 排序
+
+论文成果类 query 的 P@5 提升明显，但排序仍可继续优化。
+
+方向：
+
+1. 对 `ACL/CCF/Nature/SCI` 等强论文词给 phrase bonus。
+2. paper RRF 使用可调权重，而不是固定等价融合。
+3. 对 query 中的研究主题词和成果场景词拆分加权。
+
+### P4：前端增加同屏对比
+
+当前前端是切换式展示，不是同屏对比。
+
+汇报时更有说服力的形态：
+
+```text
+左侧 baseline BM25 Top-5
+右侧 optimized Top-5
+显示 score / matched_terms / engine
+```
+
+### P5：优化 BGE 输入文本
+
+当前 embedding 文本为：
+
+```text
+姓名、学院、职称、研究方向、论文成果、个人简介
+```
+
+后续可试：
+
+1. 减少论文长列表噪声。
+2. 强化研究方向和代表性成果。
+3. 生成短摘要后再 embedding。
+
+## 11. 报告可直接使用的总结段
+
+可以在实验报告中使用或改写：
+
+```text
+本项目实现了一个面向苏州大学导师主页的垂直信息检索系统。系统以 BM25 为 baseline，
+在此基础上构建字段级 BM25、模糊姓名匹配、领域词典查询扩展、查询意图识别、学院别名归一化、
+学院 hard filter、动态字段权重和论文成果类 RRF 融合。为了进一步处理自然语言语义改写查询，
+项目还实现了基于 BGE-small-zh-v1.5 的条件触发语义补充召回模块：系统默认使用 optimized BM25，
+仅当 query 呈现长自然语言描述或同义改写特征时，才引入语义向量召回并与 optimized 结果进行加权 RRF 融合。
+
+在 48 条正式 qrels 测试集上，optimized 相比 baseline 的 P@5 从 0.4583 提升到 0.5708，
+MRR 从 0.7899 提升到 0.9219，NDCG@5 从 0.6300 提升到 0.8186。conditional_semantic
+在正式测试集上保持与 optimized 相同的整体指标，说明条件触发机制没有破坏主模型稳定性。
+在 10 条语义泛化补充测试集上，conditional_semantic 相比 optimized 的 P@5 从 0.4600 提升到 0.5000，
+MRR 从 0.8833 提升到 0.9000，NDCG@5 从 0.5437 提升到 0.5699，验证了语义增强模块对自然语言改写查询的补充价值。
+```
+
+## 12. 当前不要误写的内容
+
+以下说法不准确，不建议出现在报告或汇报中：
+
+1. “BGE 已经作为前端默认检索模型”。
+2. “纯语义向量召回优于 optimized BM25”。
+3. “完整多路召回 RRF 已覆盖所有 query”。
+4. “字段级 BM25 单独带来全局提升”。
+5. “查询扩展单独带来全局提升”。
+6. “LLM reranker 已实现”。
+
+更准确的说法是：
+
+```text
+项目主线是 optimized BM25 hybrid；BGE 是条件触发的补充语义召回模块，已在离线评测中验证对语义泛化 query 有收益。
+```

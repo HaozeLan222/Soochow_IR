@@ -2,7 +2,7 @@
 
 苏州大学导师信息垂直检索系统课程项目骨架。
 
-目标是先搭建一个可协作、可扩展、可演示的通用架构：基础版本使用网页爬取、正文解析、隐私脱敏、JSONL 存储、BM25 排序检索；后续可以逐步加入模糊查询、语义向量检索、LLM 重排序和图形界面。
+目标是搭建一个可协作、可扩展、可演示的导师信息垂直检索系统：基础版本使用网页爬取、正文解析、JSONL 存储、BM25 排序检索；当前优化版本已经加入模糊查询、查询扩展、查询意图识别、字段动态权重、论文类 RRF，以及离线评测用的条件触发 BGE 语义补充召回。
 
 ## 项目结构
 
@@ -90,7 +90,7 @@ data/processed/handoff/handoff_teachers.clean.jsonl
 |---|---|
 | `baseline` | 基础 BM25 检索 |
 | `optimized` | 字段 BM25 + 模糊姓名 + 查询扩展 + 查询意图识别 + 学院过滤 + paper RRF |
-| `conditional_semantic` | 在 `optimized` 基础上，对长自然语言/语义改写类 query 条件触发 BGE 语义向量补充召回 |
+| `conditional_semantic` | 离线评测模式；在 `optimized` 基础上，对长自然语言/语义改写类 query 条件触发 BGE 语义向量补充召回 |
 
 正式消融评测：
 
@@ -122,8 +122,10 @@ python scripts/evaluate_search.py \
 说明：
 
 - `conditional_semantic` 不是无条件替代主模型，而是在 query 符合语义改写/自然语言描述特征时才补充向量召回，避免 embedding 噪声影响姓名、论文成果、短关键词等查询。
+- 当前前端/后端演示只提供 `bm25` 和 `optimized`；`conditional_semantic` 已在评测脚本中实现和验证，尚未接入前端 engine。
+- 文档入口见 `docs/README.md`。
 - 详细设计、消融结果和后续优化建议见 `docs/ir_model_handoff.md`。
-- 阶段性方案讨论见 `docs/ir_optimization_plan.md`。
+- 阶段性方案讨论已归档到 `docs/archive/ir_optimization_plan_process_record.md`，不要作为当前运行依据。
 
 ## 最终数据格式
 
@@ -210,7 +212,7 @@ python scripts/evaluate_search.py \
 1. 从学院/教师页面爬取 HTML。
 2. 保存原始 HTML 和最终 URL，避免跳转或解析失败导致数据丢失。
 3. 使用多规则解析抽取姓名、学院、职称、研究方向、论文、简介等字段。
-4. 对电话、邮箱等敏感信息脱敏。
+4. 清洗并规范化官网公开文本；当前实验口径保留官网公开联系方式，不再默认脱敏。
 5. 将结构化字段和全文正文写入 JSONL。
 6. 基于教师文档构建 BM25 索引。
 7. 查询时优先处理姓名精确匹配，再进行字段加权全文排序。
@@ -221,13 +223,13 @@ python scripts/evaluate_search.py \
 |---|---|---|
 | A | 爬虫与数据清洗 | `suda_ir/crawler/`, `suda_ir/data/` |
 | B | 基础检索与排序 | `suda_ir/ir/` |
-| C | 优化算法与评测 | `docs/experiments.md`, 后续 `suda_ir/ir/semantic.py` |
+| C | 优化算法与评测 | `docs/ir_model_handoff.md`, `scripts/evaluate_search.py`, `suda_ir/ir/` |
 | D | 界面、报告与展示 | `suda_ir/app/`, `docs/` |
 
 ## 后续优化路线
 
 - 模糊查询：`rapidfuzz` 或编辑距离。
 - 查询扩展：同义词词表、领域词典。
-- 语义向量检索：`sentence-transformers`、`text2vec` 或中文 BGE 模型。
+- 语义向量检索：当前已实现 BGE 条件触发补充召回的离线评测模式，后续可视部署成本接入后端 engine。
 - LLM 重排序：BM25 召回 Top-K 后调用大模型评分。
 - 评价指标：Precision@5、MRR、查询耗时。
