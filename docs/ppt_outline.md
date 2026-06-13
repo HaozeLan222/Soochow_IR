@@ -419,6 +419,7 @@ Baseline 与 Optimized 整体对比
 |---|---:|---:|---:|---:|
 | baseline | 0.4583 | 0.7899 | 0.6300 | 4.74 ms |
 | optimized | 0.5708 | 0.9219 | 0.8186 | 7.57 ms |
+| conditional_semantic | 0.5708 | 0.9219 | 0.8186 | 条件触发 |
 
 ### 讲述重点
 
@@ -428,6 +429,7 @@ Baseline 与 Optimized 整体对比
 - MRR 从 0.7899 提升到 0.9219，说明第一个相关结果更容易排在前面。
 - NDCG@5 从 0.6300 提升到 0.8186，说明整体排序质量明显提升。
 - 平均耗时仍在毫秒级，适合交互式检索。
+- `conditional_semantic` 在正式主测试集上与 optimized 持平，说明门控策略没有破坏主系统稳定性。
 
 ## 第 17 页：消融实验分析
 
@@ -445,6 +447,7 @@ Baseline 与 Optimized 整体对比
 | fielded + expand | 0.4458 | 0.7795 | 0.6128 |
 | adaptive | 0.5500 | 0.9219 | 0.8052 |
 | optimized | 0.5708 | 0.9219 | 0.8186 |
+| conditional_semantic | 0.5708 | 0.9219 | 0.8186 |
 
 语义向量探索结果，来自项目交接文档记录：
 
@@ -454,6 +457,13 @@ Baseline 与 Optimized 整体对比
 | hybrid_semantic-BGE, weight=0.05 | 0.5542 | 0.9219 | 0.8113 | 接近 optimized，但仍略低 |
 | hybrid_semantic-BGE, weight=0.6 | 0.4583 | 0.8958 | 0.7142 | 语义权重过高会引入噪声 |
 
+语义泛化补充测试集：
+
+| 模式 | P@5 | MRR | NDCG@5 |
+|---|---:|---:|---:|
+| optimized | 0.4600 | 0.8833 | 0.5437 |
+| conditional_semantic | 0.5000 | 0.9000 | 0.5699 |
+
 ### 讲述重点
 
 - 字段级 BM25 是可解释建模基础，但单独使用不一定提升。
@@ -462,13 +472,15 @@ Baseline 与 Optimized 整体对比
 - adaptive 是核心提升来源。
 - paper-only RRF 对论文成果类 query 有额外提升。
 - 项目中曾尝试使用 BGE embedding 做语义向量召回，希望解决语义相近但字面不匹配的问题。
-- 但在正式 48 query 主测试集上，纯语义召回效果低于 optimized，混合语义召回也没有超过当前主模型。
+- 但在正式 48 query 主测试集上，纯语义召回效果低于 optimized，无条件混合语义召回也没有超过当前主模型。
 - 原因可能是教师主页数据规模较小、字段结构较强，而通用 embedding 容易把“主题相近但不是标注相关目标”的教师引入 Top-5。
-- 因此最终没有把 embedding 作为默认主排序器，而是保留为探索性模块；更稳的主线仍是 optimized 自适应混合检索。
+- 因此后续加入了 `semantic_gate`，只在长自然语言/语义改写类 query 上触发 BGE 补充召回，这就是 `conditional_semantic`。
+- `conditional_semantic` 在正式主测试集上不破坏 optimized 表现，在 10 条语义泛化补充测试集上相对 optimized 有小幅提升。
+- 需要注意：当前前端/后端演示只提供 `bm25` 和 `optimized`，`conditional_semantic` 已在评测脚本中实现和验证，尚未接入前端 engine。
 
 ### 可选补充说明
 
-如果汇报时间足够，可以补一句：后续项目中又尝试了 `conditional_semantic`，只在长自然语言或语义改写类 query 上触发 BGE 补充召回，避免它影响姓名、论文成果、短关键词等本来 BM25 更稳定的查询。
+如果汇报时间足够，可以补一句：`semantic_gate` 会避开姓名、论文/成果、字段过滤、短关键词和直接领域词查询，避免 embedding 噪声影响本来 BM25 更稳定的场景。
 
 ## 第 18 页：系统实现与前端展示
 
@@ -548,7 +560,7 @@ Baseline 与 Optimized 整体对比
 
 - seed 仍有一定人工维护成本。
 - 学院和教师覆盖规模还可以继续扩大。
-- 语义向量检索已探索，但在主测试集上没有超过 optimized；后续更适合做条件触发的补充召回，而不是默认主排序器。
+- 语义向量检索已探索，并通过 `semantic_gate` 做成条件触发的 `conditional_semantic` 离线评测模式；后续如果要上线，需要新增后端 engine 或把门控逻辑接入 optimized。
 - 后端存在一份 IR 代码副本，后续可以重构为直接复用主包。
 
 ### 后续方向
