@@ -17,7 +17,7 @@ baseline BM25
   -> 学院别名归一与 hard filter
   -> 动态字段权重
   -> 论文成果类 paper-only RRF
-  -> BGE 条件触发语义补充召回（离线评测模式）
+  -> BGE 条件触发语义补充召回（离线评测 + 后端 optimized 可选内部路径）
 ```
 
 当前主线线上/前端可演示模式是：
@@ -26,13 +26,14 @@ baseline BM25
 基础 BM25 / 优化检索 optimized
 ```
 
-当前已实现并验证、但尚未接入前端默认搜索的增强模式是：
+当前需要特别区分两个入口：
 
 ```text
-conditional_semantic
+前端/后端演示入口：bm25 / optimized
+离线消融评测入口：conditional_semantic
 ```
 
-它用于离线评测和报告创新点说明：当 query 是长自然语言描述、口语化软描述或明显语义改写时，额外触发 BGE 向量召回，并与 optimized 结果做加权 RRF 融合。
+其中 `conditional_semantic` 用于离线评测和报告创新点说明；后端演示不新增第三个前端按钮，而是让 `optimized` 在内部按同一套 gate 逻辑触发 BGE 补充召回。当 query 是长自然语言描述、口语化软描述或明显语义改写时，系统额外触发 BGE 向量召回，并与 optimized 结果做加权 RRF 融合；若依赖或模型缓存不可用，则自动回退普通 optimized。
 
 ## 2. 当前数据与评测集
 
@@ -158,9 +159,9 @@ backend/suda_ir/searcher.py
 重要边界：
 
 1. 后端 API 当前注册的是 `bm25`、`optimized`、`stub`。
-2. `conditional_semantic` 当前只在 `scripts/evaluate_search.py` 离线评测中实现。
-3. 前端当前不能直接选择 `conditional_semantic`，只支持 `基础 BM25 / 优化检索`。
-4. 如果后续要把 BGE 接到网页，需要新增后端 engine 或让 optimized 内部按 gate 条件调用 `SemanticIndex`；但这会引入模型加载耗时和部署依赖，需要谨慎。
+2. 前端当前只支持 `基础 BM25 / 优化检索` 两个系统入口，不提供单独的 `conditional_semantic` 选项。
+3. `conditional_semantic` 保留在 `scripts/evaluate_search.py` 中用于离线消融；同一设计已经接入 `backend/engine/optimized.py`，作为 optimized 的可选内部语义补充路径。
+4. 该路径由 `SUDA_IR_SEMANTIC_OPTIMIZED` 控制，依赖 `sentence-transformers` 与 BGE 模型缓存；不可用时自动回退普通 optimized，避免影响前端演示。
 
 ### 3.3 前端入口
 
@@ -364,8 +365,8 @@ S001,S002,S005,S006,S007,S008,S009,S010
 重要边界：
 
 1. `conditional_semantic` 已实现并通过离线评测验证。
-2. 它尚未接入后端 API 和前端 engine。
-3. 报告中可写为“已实现并验证的补充创新点”，但不要写成“线上默认搜索已使用 BGE”。
+2. 前端不提供第三个 `conditional_semantic` 选项；BGE 作为 `optimized` 后端内部的可选补充召回路径接入。
+3. 报告中可写为“已实现并验证，并已按 gate 接入 optimized 后端路径的补充创新点”，但不要写成“所有查询默认都使用 BGE”。
 
 ## 5. 评测命令
 
@@ -651,6 +652,9 @@ NDCG@5: 0.8052 -> 0.8186
 suda_ir/ir/semantic_index.py
 suda_ir/ir/semantic_gate.py
 scripts/evaluate_search.py::conditional_semantic
+backend/suda_ir/semantic_index.py
+backend/suda_ir/semantic_gate.py
+backend/engine/optimized.py
 ```
 
 融合：
@@ -683,7 +687,8 @@ conditional_semantic  P@5=0.5000 MRR=0.9000 NDCG@5=0.5699
 不能写成：
 
 ```text
-当前前端默认使用 BGE。
+前端有一个独立 BGE 模型按钮。
+所有 optimized 查询都会使用 BGE。
 当前 BGE 全面超过 optimized。
 纯语义向量召回优于 BM25。
 ```
@@ -730,8 +735,13 @@ python -m pip install -r requirements.txt
 ```bash
 cd backend
 set SUDA_IR_DEFAULT_DATA=../data/processed/handoff/handoff_teachers.clean.jsonl
+set SUDA_IR_SEMANTIC_OPTIMIZED=1
+set SUDA_IR_SEMANTIC_CACHE=data/processed/eval/bge-small-zh-v1.5.npz
+set SUDA_IR_SEMANTIC_LOCAL_FILES_ONLY=1
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
+
+路径说明：`SUDA_IR_DEFAULT_DATA` 由后端工作目录 `backend/` 解析，因此使用 `../data/...`；`SUDA_IR_SEMANTIC_CACHE` 由项目根目录解析，因此使用 `data/...`。如果本机还没有 BGE 模型缓存，需要先在联网状态下运行语义评测或关闭 `SUDA_IR_SEMANTIC_LOCAL_FILES_ONLY` 下载模型。
 
 API 文档：
 
@@ -764,8 +774,9 @@ http://127.0.0.1:5173/
 注意：
 
 1. 前端目前只展示 `基础 BM25` 和 `优化检索`。
-2. `conditional_semantic` 是离线评测模式，不在前端下拉里。
+2. `conditional_semantic` 是离线评测模式，不在前端下拉里；实际演示时，BGE 门控作为 `优化检索` 后端内部可选路径运行。
 3. 若后端未设置 `SUDA_IR_DEFAULT_DATA`，可能读取 `backend/mock/teachers.jsonl`，数据数量和编码效果会与 clean 数据不同。
+4. 后端语义补充由 `SUDA_IR_SEMANTIC_OPTIMIZED`、`SUDA_IR_SEMANTIC_MODEL`、`SUDA_IR_SEMANTIC_CACHE`、`SUDA_IR_SEMANTIC_LOCAL_FILES_ONLY` 等环境变量控制；默认启用本地缓存模式，模型不可用时回退普通 optimized。
 
 ## 10. 仍需优化或注意的点
 
@@ -779,14 +790,16 @@ http://127.0.0.1:5173/
 2. 删除或弃用 `backend/suda_ir` 副本。
 3. 增加 CLI 与 API 一致性测试。
 
-### P1：把 conditional_semantic 接入后端可选 engine
+### P1：完善 optimized 内部 BGE 门控的演示可解释性
 
-当前 BGE 增强只在 `scripts/evaluate_search.py` 中实现。
+当前 BGE 增强已经接入 `backend/engine/optimized.py`，作为 `optimized` 内部可选路径，而不是新增第三个前端 engine。
 
-如果要做成前端演示，需要新增：
+后续更适合补的是：
 
 ```text
-backend/engine/conditional_semantic.py
+后端 stats / result debug 字段
+前端“本次是否触发语义补充”的轻量提示
+模型缓存检查与启动说明
 ```
 
 但要注意：
@@ -794,7 +807,7 @@ backend/engine/conditional_semantic.py
 1. BGE 模型加载较慢。
 2. 首次运行需要下载模型。
 3. Web 服务中应缓存 SemanticIndex，否则每次查询会很慢。
-4. 可能需要单独开关，不建议直接替代 optimized。
+4. BGE 不建议直接替代 optimized，只适合作为 gate 控制下的补充召回。
 
 ### P2：输出 per-query 明细
 
@@ -870,7 +883,7 @@ MRR 从 0.8833 提升到 0.9000，NDCG@5 从 0.5437 提升到 0.5699，验证了
 
 以下说法不准确，不建议出现在报告或汇报中：
 
-1. “BGE 已经作为前端默认检索模型”。
+1. “前端有独立 BGE 模型按钮”或“所有 optimized 查询都会使用 BGE”。
 2. “纯语义向量召回优于 optimized BM25”。
 3. “完整多路召回 RRF 已覆盖所有 query”。
 4. “字段级 BM25 单独带来全局提升”。
@@ -880,5 +893,5 @@ MRR 从 0.8833 提升到 0.9000，NDCG@5 从 0.5437 提升到 0.5699，验证了
 更准确的说法是：
 
 ```text
-项目主线是 optimized BM25 hybrid；BGE 是条件触发的补充语义召回模块，已在离线评测中验证对语义泛化 query 有收益。
+项目主线是 optimized BM25 hybrid；BGE 是条件触发的补充语义召回模块，已在离线评测中验证对语义泛化 query 有收益，并已作为 optimized 后端内部的可选补充路径接入。
 ```

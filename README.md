@@ -2,7 +2,7 @@
 
 苏州大学导师信息垂直检索系统课程项目骨架。
 
-目标是搭建一个可协作、可扩展、可演示的导师信息垂直检索系统：基础版本使用网页爬取、正文解析、JSONL 存储、BM25 排序检索；当前优化版本已经加入模糊查询、查询扩展、查询意图识别、字段动态权重、论文类 RRF，以及离线评测用的条件触发 BGE 语义补充召回。
+目标是搭建一个可协作、可扩展、可演示的导师信息垂直检索系统：基础版本使用网页爬取、正文解析、JSONL 存储、BM25 排序检索；当前优化版本已经加入模糊查询、查询扩展、查询意图识别、字段动态权重、论文类 RRF，以及条件触发 BGE 语义补充召回。前端仍保持 `bm25` / `optimized` 两个系统入口，BGE 不作为第三个按钮，而是在 `optimized` 后端内部按 gate 条件补充召回。
 
 ## 项目结构
 
@@ -89,8 +89,8 @@ data/processed/handoff/handoff_teachers.clean.jsonl
 | 模式 | 含义 |
 |---|---|
 | `baseline` | 基础 BM25 检索 |
-| `optimized` | 字段 BM25 + 模糊姓名 + 查询扩展 + 查询意图识别 + 学院过滤 + paper RRF |
-| `conditional_semantic` | 离线评测模式；在 `optimized` 基础上，对长自然语言/语义改写类 query 条件触发 BGE 语义向量补充召回 |
+| `optimized` | 字段 BM25 + 模糊姓名 + 查询扩展 + 查询意图识别 + 学院过滤 + paper RRF；后端演示中可按 gate 条件触发 BGE 补充召回 |
+| `conditional_semantic` | 离线评测模式；用于复现 optimized + BGE 门控补充召回的消融结果 |
 
 正式消融评测：
 
@@ -122,7 +122,8 @@ python scripts/evaluate_search.py \
 说明：
 
 - `conditional_semantic` 不是无条件替代主模型，而是在 query 符合语义改写/自然语言描述特征时才补充向量召回，避免 embedding 噪声影响姓名、论文成果、短关键词等查询。
-- 当前前端/后端演示只提供 `bm25` 和 `optimized`；`conditional_semantic` 已在评测脚本中实现和验证，尚未接入前端 engine。
+- 当前前端/后端演示仍只提供 `bm25` 和 `optimized` 两个入口；其中 `optimized` 后端已可通过 `SUDA_IR_SEMANTIC_OPTIMIZED=1` 启用内部 BGE 门控补充。若模型依赖或本地缓存不可用，系统会自动回退到普通 optimized。
+- 后端演示时，`SUDA_IR_DEFAULT_DATA` 相对 `backend/` 目录解析，通常写 `../data/processed/handoff/handoff_teachers.clean.jsonl`；`SUDA_IR_SEMANTIC_CACHE` 相对项目根目录解析，通常写 `data/processed/eval/bge-small-zh-v1.5.npz`。
 - 文档入口见 `docs/README.md`。
 - 详细设计、消融结果和后续优化建议见 `docs/ir_model_handoff.md`。
 - 阶段性方案讨论已归档到 `docs/archive/ir_optimization_plan_process_record.md`，不要作为当前运行依据。
@@ -230,6 +231,6 @@ python scripts/evaluate_search.py \
 
 - 模糊查询：`rapidfuzz` 或编辑距离。
 - 查询扩展：同义词词表、领域词典。
-- 语义向量检索：当前已实现 BGE 条件触发补充召回的离线评测模式，后续可视部署成本接入后端 engine。
+- 语义向量检索：当前已实现 BGE 条件触发补充召回，并接入后端 `optimized` 的可选内部路径；后续可继续优化缓存、触发解释和前端提示。
 - LLM 重排序：BM25 召回 Top-K 后调用大模型评分。
 - 评价指标：Precision@5、MRR、查询耗时。
